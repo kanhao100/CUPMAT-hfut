@@ -27,7 +27,7 @@
 #include "HX711.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h> //这两个库是与LCD1602有关的库文件
-#include <aJSON.h>
+#include "aJSON.h"
 //此板块以后将进行整理，将库文件里面我们需要的代码进行重写，现在暂时使用他人的库函数
 
 /**********************************************************
