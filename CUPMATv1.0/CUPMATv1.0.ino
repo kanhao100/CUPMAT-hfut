@@ -6,7 +6,7 @@
     20200902 吴韦举  为什么布尔值不用bool，其实都一样，去看看C标准就知道bool其实就是int，
                     arduino执行的C语言标准比keil51新多了，很多写法和keil不一样
                     维护此项目请做好测试以及写好修改说明
-                    下一步工作将使用三线程，我将继续修复bug,以及重写导入的库文件所用到的函数以及简化代码，向勉益将为此项目添加esp8266串口数据传输的功能，成帅继续完成提醒部分的程序
+                    下一步工作使用三线程，我将继续修复bug,以及重写导入的库文件所用到的函数以及简化代码，向勉益将为此项目添加esp8266串口数据传输的功能，成帅继续完成提醒部分的程序
                        
     修改记录:20200830以前  成帅  创建
             20200831 吴韦举  格式优化；代码整合；细节优化；
@@ -26,6 +26,7 @@
 #include "HX711.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h> //这两个库是与LCD1602有关的库文件
+#include <aJSON.h>
 //此板块以后将进行整理，将库文件里面我们需要的代码进行重写，现在暂时使用他人的库函数
 
 /**********************************************************
@@ -50,6 +51,16 @@ DHTesp dht;
 HX711 scale;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 //I2C LCD显示屏初始化,本来是打算放在函数里面的，但是没办法，放在函数里面会出现一些问题，故没有封在函数里面。
+/**********************************************************
+                      贝壳物联接口定义
+***********************************************************/
+String DEVICEID = "19242";      //本设备在贝壳物联上的设备ID
+String APIKEY = "712c5cad8";    //设备密码
+String WORKID = "17229";        //接口“是否在使用中”ID
+String NO_DRINK_SID = "17230";  //接口”未饮水时间（s）“ID
+String NO_DRINK_MINID = "17232";//接口”未饮水时间（min）“ID
+String DRINK_TIMEID = "17231 "; //接口”饮水次数“ID
+String RECORDDRINKID = "13949 "; //接口”饮水量“ID
 
 /**********************************************************
                       全局外部控制变量定义
@@ -91,6 +102,17 @@ int layflag = 0;                  //布尔值，判断水杯在不在水杯垫�
 int lastlayflag = 0;              //布尔值，判断上一次loop循环水杯在不在水杯垫上，默认为0
 int drinking_leaving = 0;         //布尔值，判断一次饮水过程中是否处于拿起水杯喝水（水杯离开水杯垫）的状态，默认为0
 unsigned long temp = 0;           //临时变量，随意调用，用完归零。
+
+unsigned long lastCheckInTime = 0;              //记录上次报到的时间
+unsigned long lastUpdateTime = 0;               //记录上次上传数据的时间
+const unsigned long postingInterval = 40000;    //若未报到成功，每隔40s向服务器报到一次
+const unsigned long updatedInterval = 5000;     //数据上次间隔5s
+String inputString = "";                        //串口读取到的内容
+boolean stringComplete = false;                 //串口是否读取完毕
+boolean CONNECT = true;                         //连接状态
+boolean isCheckIn = false;                      //是否连接状态
+char* parseJson(char *jsonString);              //定义aJson字符串
+
 
 double scale_antishake_weight[5];  //用于压力传感器的防抖的临时数组
 double scale_antishake_gap = 0;
@@ -304,7 +326,50 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
   /*old_time = 0;
     while (millis() < old_time + 1500) {}
     old_time = millis();*/
+
+  /**********************************************************
+                         贝壳物联代码
+  ***********************************************************/
+  if(millis() - lastCheckInTime > postingInterval||lastCheckInTime == 0)
+  {
+    CheckIn();
+  }
+  if(millis() - lastUpdateTime > updatedInterval)
+  {
+    updatel(DEVICEID,"17229",(float)layflag );                         //上传数据”是否在使用中“
+    updatel(DEVICEID,"17232",(float)no_drink_time );                   //上传数据”未喝水时间（min)"
+    updatel(DEVICEID,"17230",(float)no_drink_time_s );                 //上传数据"未喝水时间(s)"
+    updatel(DEVICEID,"17231",(float)drink_times );                     //上传数据"饮水次数“
+    updatel(DEVICEID,"13949",(float)recordwater[drink_times] );        //上传数据”饮水量“
+  }
+  serialEvent();                              //调用serialEvent()函数获取网站传输的指令
+  if(stringComplete)
+  {
+    inputString.trim();
+    //Serial. println( inputString);
+    if(inputString == "CLOSED")               // 如果接收到网站的指令为CLOSED,则停止连接
+    {
+      Serial. println("connect closed!");
+      CONNECT = false;
+      isCheckIn = false;
+    }
+    else                                     //否则，处理接收到的命令
+    {
+      int len = inputString.length() + 1;
+      if (inputString.startsWith("{") && inputString.endsWith("}"))
+      {
+        char jsonString[len];
+        inputString.toCharArray(jsonString, len);
+        aJsonObject * msg = aJson.parse(jsonString);
+        processMessage( msg) ;              //处理接收到的JSON数据
+        aJson.deleteItem(msg);
+      }
+   }
+    inputString = "";
+    stringComplete = false;
+ }
 }
+
 
 /**********************************************************
                         自定义函数
@@ -796,4 +861,100 @@ void scale_antishake()
   Serial.print("\t\n");
   Serial.print(scale_antishake_gap);
   scale_antishake_gap = 0;
+}
+/***********************************************************
+    函数名称：CheckIn()
+    函数功能：连接失败后重新连接
+    调用函数：
+    输入参数：
+    输出参数：
+    返回值：无
+    说明：如果连接失败，则通过AT指令重新连接，否则输入设备ID和密码进行连接
+***********************************************************/
+void CheckIn()
+{
+  if(!CONNECT)                  //如果连接失败，则通过AT指令重新连接
+  {
+    Serial.print("++ +");
+    delay(500);
+    Serial.print("\r\n");
+    delay(1000);
+    Serial.print("AT+RST\r\n");
+    delay(600); 
+    CONNECT =  true;
+    lastCheckInTime = millis();   
+  }
+  else                           //否则输入设备ID和密码进行连接
+  {
+    Serial.print("{\"M\":\"checkin\",\"ID\":\"");
+    Serial.print(DEVICEID);
+    Serial.print("\",\"K\":\"");
+    Serial.print(APIKEY);
+    Serial.print("\"}\r\n"); 
+    lastCheckInTime = millis();
+  }  
+}
+/***********************************************************
+    函数名称：updatel()
+    函数功能：上传数据至贝壳物联
+    调用函数：
+    输入参数：
+    输出参数：
+    返回值：无
+***********************************************************/
+void updatel(String did, String inputid, float value)
+{
+    Serial.print("{\"M\":\"update\",\"ID\":\"");
+    Serial.print(did);
+    Serial.print("\",\"V\":{\"");
+    Serial.print(inputid);
+    Serial.print("\"}}");
+    lastCheckInTime = millis();   
+    lastCheckInTime = millis();       
+}
+/***********************************************************
+    函数名称：serialEvent()
+    函数功能：获取网络传输的指令，读取网站的命令
+    调用函数：
+    输入参数：
+    输出参数：
+    返回值：无
+***********************************************************/
+void serialEvent()
+{
+  while(Serial.available())
+  {
+    char inChar = (char)Serial.read();
+    inputString += inChar;
+    if(inChar == '\n')
+    {
+      stringComplete = true; 
+    }
+  }  
+}
+/***********************************************************
+    函数名称：processMessage()
+    函数功能：处理接受来自网站的命令
+    调用函数：
+    输入参数：
+    输出参数：
+    返回值：无
+***********************************************************/
+void processMessage(aJsonObject*msq)
+{
+  aJsonObject*method = aJson.getObjectItem(msq,"M");
+  aJsonObject*content = aJson.getObjectItem(msq,"C");
+  aJsonObject*client_id = aJson.getObjectItem(msq,"ID");
+  //char*st = aJson.print(msg);
+  if (!method) 
+  {
+    return;
+  }
+  //Serial. println(st);
+  //free(st);
+    String M = method -> valuestring;
+  if (M == "checkinok" )
+  {
+    isCheckIn = true;
+  }
 }
