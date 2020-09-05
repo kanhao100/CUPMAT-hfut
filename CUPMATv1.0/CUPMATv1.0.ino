@@ -47,6 +47,7 @@ const int LOADCELL_SCK_PIN = 3;
   LED  VCC----D51
   LCD1602_I2C  SCL----SCL   SDA----SDA
   BEEP I/O----D53  VCC---D52
+  Esp8266-01 RX----TX,TX----RX
 */
 
 /**********************************************************
