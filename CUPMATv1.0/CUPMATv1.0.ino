@@ -17,7 +17,9 @@
                             用remind1_s()暂时替代remind1()，前者显示秒数，因为在开发者调试过程中，分钟时间过长，不方便，开发者使用后者调试更方便
                             主程序方面，完成了饮水过程的准确识别以及饮水过程中的时间差与重量差的读取，提醒部分，计划书写得并不一定合理，故暂只象征性编写了小部分程序，此部分以后编程难度很小
                             经测试，主体功能似乎实现了！版本1.0  bug应该会很多，以后再调
-            20200905 向勉益  添加物联网代码
+            20200904 向勉益  添加物联网代码
+            20200905 向勉益  修改贝壳物联代码，修改了几个bug，仍有几个bug未修复，目前饮水次数和用户未饮水时间（min)上传至贝壳物联出现困难，以后改进。
+
 
 **********************************************************/
 
@@ -29,7 +31,8 @@
 #include "HX711.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h> //这两个库是与LCD1602有关的库文件
-#include "aJSON.h"
+#include <aJSON.h>
+
 //此板块以后将进行整理，将库文件里面我们需要的代码进行重写，现在暂时使用他人的库函数
 
 /**********************************************************
@@ -89,8 +92,8 @@ double scale_fact = 5.4915;     //用于开发者测试，压力传感器的校�
 //以下变量部分是需要实时传输给上位机的，有部分不要
 float temperature = 88.88;        //最后输出到LCD和上传到上位机的温度数据，单位摄氏度
 float RH = 88.88;                 //最后输出到LCD和上传到上位机的相对湿度数据，”单位“百分比
-double recordwater[50];          //每一次喝掉的水量，单位g
-unsigned long timeb[50];         //每一次的水杯在水杯垫上的停滞时间，单位s
+double recordwater[50];           //每一次喝掉的水量，单位g
+unsigned long timeb[50];          //每一次的水杯在水杯垫上的停滞时间，单位s
 unsigned long no_drink_time = 0;  //记录用户未饮水时间，单位min
 unsigned long no_drink_time_s = 0;//记录用户未饮水时间，单位s
 int drink_times = 0;              //饮水次数
@@ -228,6 +231,8 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
   Serial.println(timeb[drink_times - 1]);//此处有时候会是0，原因未知，很奇怪
   Serial.print("no_drink_time(degrees: s)：");
   Serial.println(no_drink_time_s);
+  Serial.print("no_drink_time(degrees: min)：");
+  Serial.println(no_drink_time);
   /*测试用for (int i = 0; i < 10; i++)
     {
     Serial.println(recordwater[i]);
@@ -339,11 +344,11 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
   }
   if(millis() - lastUpdateTime > updatedInterval)
   {
-    updatel(DEVICEID,"17229",(float)layflag );                         //上传数据”是否在使用中“
-    updatel(DEVICEID,"17232",(float)no_drink_time );                   //上传数据”未喝水时间（min)"
-    updatel(DEVICEID,"17230",(float)no_drink_time_s );                 //上传数据"未喝水时间(s)"
-    updatel(DEVICEID,"17231",(float)drink_times );                     //上传数据"饮水次数“
-    updatel(DEVICEID,"13949",(float)recordwater[drink_times] );        //上传数据”饮水量“
+    updatel(DEVICEID,"17229",(float)layflag);                         //上传数据”是否在使用中“
+    updatel(DEVICEID,"17232",(float)no_drink_time);                   //上传数据”未喝水时间（min)"
+    updatel(DEVICEID,"17230",(float)no_drink_time_s);                 //上传数据"未喝水时间(s)"
+    updatel(DEVICEID,"17231",(float)drink_times);                     //上传数据"饮水次数“
+    updatel(DEVICEID,"13949",(float)recordwater[drink_times]);        //上传数据”饮水量“
   }
   serialEvent();                              //调用serialEvent()函数获取网站传输的指令
   if(stringComplete)
@@ -883,8 +888,8 @@ void CheckIn()
     Serial.print("\r\n");
     delay(1000);
     Serial.print("AT+RST\r\n");
-    delay(600); 
-    CONNECT =  true;
+    delay(6000); 
+    CONNECT = true;
     lastCheckInTime == 0;   
   }
   else                           //否则输入设备ID和密码进行连接
@@ -911,7 +916,9 @@ void updatel(String did, String inputid, float value)
     Serial.print(did);
     Serial.print("\",\"V\":{\"");
     Serial.print(inputid);
-    Serial.print("\"}}");
+    Serial.print("\":\"");
+    Serial.print(value);
+    Serial.println("\"}}");
     lastCheckInTime = millis();   
     lastUpdateTime = millis();       
 }
@@ -943,11 +950,11 @@ void serialEvent()
     输出参数：
     返回值：无
 ***********************************************************/
-void processMessage(aJsonObject*msq)
+void processMessage(aJsonObject *msg)
 {
-  aJsonObject*method = aJson.getObjectItem(msq,"M");
-  aJsonObject*content = aJson.getObjectItem(msq,"C");
-  aJsonObject*client_id = aJson.getObjectItem(msq,"ID");
+  aJsonObject*method = aJson.getObjectItem(msg,"M");
+  aJsonObject*content = aJson.getObjectItem(msg,"C");
+  aJsonObject*client_id = aJson.getObjectItem(msg,"ID");
   //char*st = aJson.print(msg);
   if (!method) 
   {
@@ -956,8 +963,8 @@ void processMessage(aJsonObject*msq)
   //Serial. println(st);
   //free(st);
     String M = method -> valuestring;
-  if (M == "checkinok" )
-  {
-    isCheckIn = true;
-  }
+    if (M == "checkinok" )
+    {
+      isCheckIn = true;
+    }
 }
