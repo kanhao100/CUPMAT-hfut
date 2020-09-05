@@ -881,7 +881,7 @@ void CheckIn()
     Serial.print("\r\n");
     delay(1000);
     Serial.print("AT+RST\r\n");
-    delay(600); 
+    delay(6000); 
     CONNECT =  true;
     lastCheckInTime == 0;   
   }
@@ -909,7 +909,9 @@ void updatel(String did, String inputid, float value)
     Serial.print(did);
     Serial.print("\",\"V\":{\"");
     Serial.print(inputid);
-    Serial.print("\"}}");
+    Serial.print("\":\"");
+    Serial.print(value);
+    Serial.println("\"}}");
     lastCheckInTime = millis();   
     lastUpdateTime = millis();       
 }
@@ -941,11 +943,11 @@ void serialEvent()
     输出参数：
     返回值：无
 ***********************************************************/
-void processMessage(aJsonObject*msq)
+void processMessage(aJsonObject *msg)
 {
-  aJsonObject*method = aJson.getObjectItem(msq,"M");
-  aJsonObject*content = aJson.getObjectItem(msq,"C");
-  aJsonObject*client_id = aJson.getObjectItem(msq,"ID");
+  aJsonObject*method = aJson.getObjectItem(msg,"M");
+  aJsonObject*content = aJson.getObjectItem(msg,"C");
+  aJsonObject*client_id = aJson.getObjectItem(msg,"ID");
   //char*st = aJson.print(msg);
   if (!method) 
   {
@@ -954,8 +956,8 @@ void processMessage(aJsonObject*msq)
   //Serial. println(st);
   //free(st);
     String M = method -> valuestring;
-  if (M == "checkinok" )
-  {
-    isCheckIn = true;
-  }
+    if (M == "checkinok" )
+    {
+      isCheckIn = true;
+    }
 }
