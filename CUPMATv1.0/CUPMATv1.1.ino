@@ -15,6 +15,13 @@
                             用remind1_s()暂时替代remind1()，前者显示秒数，因为在开发者调试过程中，分钟时间过长，不方便，开发者使用后者调试更方便
                             主程序方面，完成了饮水过程的准确识别以及饮水过程中的时间差与重量差的读取，提醒部分，计划书写得并不一定合理，故暂只象征性编写了小部分程序，此部分以后编程难度很小
                             经测试，主体功能似乎实现了！版本1.0  bug应该会很多，以后再调
+<<<<<<< Updated upstream:CUPMATv1.0/CUPMATv1.1.ino
+=======
+            20200904 向**  添加物联网代码
+            20200905 向**  修改贝壳物联代码，修改了几个bug，仍有几个bug未修复，目前饮水次数和用户未饮水时间（min)上传至贝壳物联出现困难，以后改进。
+            20200906 成**    初步完善提醒部分代码
+
+>>>>>>> Stashed changes:CUPMATv1.0/CUPMATv1.0.ino
 
 **********************************************************/
 
@@ -62,6 +69,7 @@ int user_mute = 0;              //布尔值，用于控制是否开启静音，�
 int user_temperature_unit = 0;  //布尔值，用于控制显示的摄氏度还是华氏度，默认为0摄氏度,1为华氏度
 int user_scale_situation = 0;   //布尔值，用于控制是否进入电子秤模式(此模式暂未编写，计划中)，默认0否
 int user_RH = 15;             //用于开发者测试,单位百分比
+<<<<<<< Updated upstream:CUPMATv1.0/CUPMATv1.1.ino
 int user_temperature = 30;    //用于开发者测试,单位摄氏度                
 int user_time1 = 20;            
 int user_time2 = 30;    
@@ -69,6 +77,15 @@ int user_time3 = 40;
 int user_time4 = 50;
 int user_time5 = 20;
 int user_time6 = 30;
+=======
+int user_temperature = 30;    //用于开发者测试,单位摄氏度
+int user_time1 = 20;            
+int user_time2 = 30;
+int user_time3 = 40;
+int user_time4 = 50;
+int user_time5 = 60;
+int user_time6 = 70;    //用于用户设置的六个提醒时间            
+>>>>>>> Stashed changes:CUPMATv1.0/CUPMATv1.0.ino
 double scale_fact = 5.4915;     //用于开发者测试，压力传感器的校准参数，需要开发者校准
 
 /**********************************************************
@@ -219,12 +236,20 @@ void loop()
   /**********************************************************
                          提醒部分
   ***********************************************************/
+<<<<<<< Updated upstream:CUPMATv1.0/CUPMATv1.1.ino
   
   if (layflag == 1 && lastlayflag == 1)//连续两次检测到有物品稳定地在上面
   {
     if (RH > user_RH && temperature < user_temperature)//符合当前湿度大于用户设定的湿度1和符合当前温度小于用户设定的温度1
     {
       if ((unsigned long)millis() / 1000 - begin_time - user_time5 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0)//第一级提醒，目前设定的是15s
+=======
+   if (layflag == 1 && lastlayflag == 1)//连续两次检测到有物品稳定地在上面
+  {
+    if (RH > user_RH && temperature < user_temperature)//符合lv_1的温湿度提醒条件
+    {
+      if ((unsigned long)millis() / 1000 - begin_time - user_time5 <20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0)//第一级提醒
+>>>>>>> Stashed changes:CUPMATv1.0/CUPMATv1.0.ino
       {
         if (user_mute == 0)//检测外部控制变量
         {
@@ -235,7 +260,11 @@ void loop()
           remind1_mute();
         }
       }
+<<<<<<< Updated upstream:CUPMATv1.0/CUPMATv1.1.ino
       if ((unsigned long)millis() / 1000 - begin_time - user_time6 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0 )
+=======
+      if ((unsigned long)millis() / 1000 - begin_time - user_time6 <20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0)//第二级提醒
+>>>>>>> Stashed changes:CUPMATv1.0/CUPMATv1.0.ino
       {
         if (user_mute == 0)
         {
@@ -247,6 +276,7 @@ void loop()
         }
       }
     }
+<<<<<<< Updated upstream:CUPMATv1.0/CUPMATv1.1.ino
     if (( RH < user_RH && temperature < user_temperature)||(RH > user_RH && temperature > user_temperature))//符合当前湿度小于用户设定的湿度2和符合当前温度大于用户设定的温度2
     {
       if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒，目前设定的是15s
@@ -261,6 +291,21 @@ void loop()
         }
       }
       if ((unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0)//第二级提醒
+=======
+    else if (RH < user_RH && temperature < user_temperature)//符合lv_2的温湿度提醒条件
+    { 
+      if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
+      {
+        if (user_mute == 0)
+        {
+          remind1_s();
+        }
+        else
+        {
+          remind1_mute();
+        }
+      }
+      if ((unsigned long)millis() / 1000 - begin_time - user_time4 <20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0)//第二级提醒
       {
         if (user_mute == 0)
         {
@@ -272,9 +317,28 @@ void loop()
         }
       }
     }
+    if(RH > user_RH && temperature > user_temperature)
+    {
+      if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
+>>>>>>> Stashed changes:CUPMATv1.0/CUPMATv1.0.ino
+      {
+        if (user_mute == 0)
+        {
+          remind1_s();
+        }
+        else
+        {
+          remind1_mute();
+        }
+      }
+<<<<<<< Updated upstream:CUPMATv1.0/CUPMATv1.1.ino
+    }
     if(RH < user_RH && temperature > user_temperature)
     {
       if((unsigned long)millis() / 1000 - begin_time - user_time1 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0)
+=======
+      if ( (unsigned long)millis() / 1000 - begin_time - user_time4 <20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0)//第二级提醒
+>>>>>>> Stashed changes:CUPMATv1.0/CUPMATv1.0.ino
       {
         if (user_mute == 0)
         {
@@ -296,6 +360,31 @@ void loop()
           remind1_mute();
         }
        }
+    }
+    if(RH < user_RH && temperature > user_temperature)//符合lv_3的温湿度提醒条件
+    {
+      if ((unsigned long)millis() / 1000 - begin_time - user_time1 <20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0)//第一级提醒
+      {
+        if (user_mute == 0)//检测外部控制变量
+        {
+          remind1_s();
+        }
+        else
+        {
+          remind1_mute();
+        }
+      }
+      if ((unsigned long)millis() / 1000 - begin_time - user_time2 <20 && (unsigned long)millis() / 1000 - begin_time - user_time2 > 0)//第二级提醒
+      {
+        if (user_mute == 0)
+        {
+          remind1_s();
+        }
+        else
+        {
+          remind1_mute();
+        }
+      } 
     }
   }
 
