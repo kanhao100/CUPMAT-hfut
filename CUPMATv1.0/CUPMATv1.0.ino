@@ -20,7 +20,11 @@
             20200904 向勉益  添加物联网代码
             20200905 向勉益  修改贝壳物联代码，修改了几个bug，仍有几个bug未修复，目前饮水次数和用户未饮水时间（min)上传至贝壳物联出现困难，以后改进。
             20200906 成帅    初步（划重点）完善提醒部分代码
-            20200919 吴韦举  
+            20200919 吴韦举   1.增加电子秤模式。
+                             2.删除了HX711.h库文件，通过阅读HX711 datasheet自行编写了HX711_read_raw, HX711_read, HX711_read_raw_average, HX711_read_average,
+                             HX711_initialize五个函数，并且完成调试。
+                             3.删除了部分无用代码，但仍未进行系统的bug排查。
+
 **********************************************************/
 
 /**********************************************************
@@ -28,14 +32,10 @@
 ***********************************************************/
 #include <dht11.h>
 #include "DHTesp.h"
-#include "HX711.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h> //这两个库是与LCD1602有关的库文件
 #include <aJSON.h>
-
 //此板块以后将进行整理，将库文件里面我们需要的代码进行重写，现在暂时使用他人的库函数
-
-#define SHIFTIN_WITH_SPEED_SUPPORT(data, clock, order) shiftInSlow(data, clock, order)
 
 /**********************************************************
                         宏定义
@@ -43,7 +43,6 @@
 #define DHT11_PIN 49
 #define DOUT_PIN 2
 #define SCK_PIN 3
-HX711 scale;
 /*完全重现此测试项目需要如下连接：
   DHT11 DATA----D49，
   HX711 DT----A2  SCK----A3
@@ -94,13 +93,13 @@ int user_temperature_unit = 0;  //布尔值，用于控制显示的摄氏度还�
 int user_scale_situation = 0;   //布尔值，用于控制是否进入电子秤模式(此模式暂未编写，计划中)，默认0否
 int user_RH = 15;              //用于开发者测试,单位百分比
 int user_temperature = 30;     //用于开发者测试,单位摄氏度
+double scale_factor = 415.006;   //用于开发者测试，压力传感器的校准参数，需要开发者校准
 int user_time1 = 20;
 int user_time2 = 30;
 int user_time3 = 40;
 int user_time4 = 50;
 int user_time5 = 60;
 int user_time6 = 70;    //设置的六个提醒时间
-double scale_fact = 5.4915;     //用于开发者测试，压力传感器的校准参数，需要开发者校准
 
 /**********************************************************
                       全局内部变量定义
@@ -135,6 +134,7 @@ boolean CONNECT = true;                         //连接状态
 boolean isCheckIn = false;                      //是否连接状态
 char* parseJson(char *jsonString);              //定义aJson字符串
 
+double HX711_initial_weight;
 
 double scale_antishake_weight[5];  //用于压力传感器的防抖的临时数组
 double scale_antishake_gap = 0;
@@ -151,338 +151,301 @@ void setup()
   dht.setup(49, DHTesp::DHT11); // Connect DHT sensor to GPIO 17
   pinMode(DOUT_PIN, INPUT_PULLUP);
   pinMode(SCK_PIN, OUTPUT);
-
   Serial.begin(115200);
   Serial.println();
-  //压力传感器初始化部分，example里面复制的，还没修改的，以后会重写，初始化阶段不能碰压力传感器，初始化后会设这时的压力为零点
-  scale.begin(DOUT_PIN, SCK_PIN, 128);//初始化数据输出端口(DOUT),时钟线（SCK）,选择Channel A(128位）
-  if (digitalRead(DOUT_PIN) == LOW)
-  {
-    Serial.println("HX711 is OK.");
-  }
-  else
-  {
-    Serial.println("HX711 is not work.");
-  }
-  Serial.println(HX711_read());
-  Serial.println("Before setting up the scale:");
-  Serial.print("read: \t\t");
-  Serial.println(scale.read()); // print a raw reading from the ADC
-  Serial.print("read average: \t\t");
-  Serial.println(scale.read_average(20)); // print the average of 20 readings from the ADC
-  Serial.print("get value: \t\t");
-  Serial.println(scale.get_value(5)); // print the average of 5 readings from the ADC minus the tare weight (not set yet)
-  Serial.print("get units: \t\t");
-  Serial.println(scale.get_units(5), 1); // print the average of 5 readings from the ADC minus tare weight (not set) divided
-  // by the SCALE parameter (not set yet)
-  scale.set_scale(2280.f); // this value is obtained by calibrating the scale with known weights; see the README for details
-  scale.tare();            // reset the scale to 0
-  Serial.println("After setting up the scale:");
-  Serial.print("read: \t\t");
-  Serial.println(scale.read()); // print a raw reading from the ADC
-  Serial.print("read average: \t\t");
-  Serial.println(scale.read_average(20)); // print the average of 20 readings from the ADC
-  Serial.print("get value: \t\t");
-  Serial.println(scale.get_value(5)); // print the average of 5 readings from the ADC minus the tare weight, set with tare()
-  Serial.print("get units: \t\t");
-  Serial.println(scale.get_units(5), 1); // print the average of 5 readings from the ADC minus tare weight, divided
-  // by the SCALE parameter set with set_scale
-
+  HX711_initialize();//初始化阶段不能碰压力传感器，初始化后会设这时的压力为零点
   LCD1602_welcome();
 }
 
 void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好不要超过2s
 {
   //delay(dht.getMinimumSamplingPeriod());//忘了什么用了，貌似没用
-
-  RH = dht.getHumidity();
-  temperature = dht.getTemperature();
-  scale_get_units = scale.get_units() * scale_fact;
-  scale_get_units5 = scale.get_units(5) * scale_fact;//尽力减小loop阶段正常运行的时间,故只在loop开头实现读取一次外围数据，重复获取会导致循环时间变长，不要这样做
-
-  if (layflag == 1)
+  if (user_scale_situation == 0)//控制进入电子秤模式
   {
-    lastlayflag = 1;
-  }
-  else if (layflag == 0)
-  {
-    lastlayflag = 0;
-  }//保存一下上一次循环的标识符
+    RH = dht.getHumidity();
+    temperature = dht.getTemperature();
+    scale_get_units = HX711_read();
+    scale_get_units5 = HX711_read_average(5);//尽力减小loop阶段正常运行的时间,故只在loop开头实现读取一次外围数据，重复获取会导致循环时间变长，不要这样做
 
-  //检测是否有物品在传感器上。如果有，将layflag置1
-  if (abs(scale_get_units - scale_get_units5) < 1.5 && scale_get_units >= 10)//前者是为了防抖(效果目前并不明显）
-  {
-    layflag = 1;//layflag仅仅只能说明有物品放在传感器上，并不能说明进入计时的模式了，所以我们以后希望设置一个按键，按下后，方可进入提醒模式
+    if (layflag == 1)
+    {
+      lastlayflag = 1;
+    }
+    else if (layflag == 0)
+    {
+      lastlayflag = 0;
+    }//保存一下上一次循环的标识符
+
+    //检测是否有物品在传感器上。如果有，将layflag置1
+    if (abs(scale_get_units - scale_get_units5) < 1.5 && scale_get_units >= 10)//前者是为了防抖(效果目前并不明显）
+    {
+      layflag = 1;//layflag仅仅只能说明有物品放在传感器上，并不能说明进入计时的模式了，所以我们以后希望设置一个按键，按下后，方可进入提醒模式
+    }
+    else
+    {
+      layflag = 0;
+    }
+    Serial.print("layflag:");
+    Serial.println(layflag);//方便调试
+
+    if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 0)//第一次放入，一次饮水过程开始
+    {
+      begin_weight = scale_get_units5;
+      begin_time = (unsigned long)millis() / 1000;
+    }
+    //有物品在传感器上+上一次循环没物品+不处于一次饮水过程中，说明是第一次放入物品，一次饮水开始，记录开始的质量以及时间
+    if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 1)//第二次放入，一次饮水过程结束
+    {
+      end_time = (unsigned long)millis() / 1000;
+      timeb[drink_times] = end_time - begin_time;
+      recordwater[drink_times] = begin_weight - scale_get_units5;
+      no_drink_time_s = (end_time - begin_time) + no_drink_time_s;
+      drink_times ++;//完成一次正常的饮水,开始下一次
+      drinking_leaving = 0;
+      begin_weight = scale_get_units5;
+      begin_time = (unsigned long)millis() / 1000;//重新开始记录时间
+    }
+    if (layflag == 0 && lastlayflag == 1)//如果上一次有物品，但是这一次没有物品，说明什么?说明水杯离开水杯垫，离开水杯垫有几个可能，一个是正常饮水一个是意外碰到，需要排除意外碰到的情况,还没怎么写排除(⊙﹏⊙)
+    {
+      if (begin_weight - scale_get_units5 > 10)//如果和原来比，比原来小10g以上可认定为饮水过程中，故置其标志位为1
+      {
+        drinking_leaving = 1;//置一次饮水的”中断期“标志位为1
+      }
+    }
+    //注意：millis()溢出的情况暂未考虑到，以后补。
+    //以下均是调试过程中需要的
+    Serial.print("drink_times：");
+    Serial.println(drink_times);
+    Serial.print("recordwater：");
+    Serial.println(recordwater[drink_times - 1]);//此处有时候会是0，原因未知，很奇怪
+    Serial.print("begin_weight：");
+    Serial.println(begin_weight);
+    Serial.print("begin_time：");
+    Serial.println(begin_time);
+    Serial.print("timeb(degrees: s)：");
+    Serial.println(timeb[drink_times - 1]);//此处有时候会是0，原因未知，很奇怪
+    Serial.print("no_drink_time(degrees: s)：");
+    Serial.println(no_drink_time_s);
+    Serial.print("no_drink_time(degrees: min)：");
+    Serial.println(no_drink_time);
+    /*临时测试用for (int i = 0; i < 10; i++)
+      {
+      Serial.println(recordwater[i]);
+      }
+      for (int i = 0; i < 10; i++)
+      {
+      Serial.println(timeb[i]);
+      }
+    */
+    /**********************************************************
+                           提醒部分
+    ***********************************************************/
+    if (layflag == 1 && lastlayflag == 1)//连续两次检测到有物品稳定地在上面
+    {
+      if (RH > user_RH && temperature < user_temperature)//符合lv_1的温湿度提醒条件
+      {
+        if ((unsigned long)millis() / 1000 - begin_time - user_time5 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0) //第一级提醒
+        {
+          if (user_mute == 0)//检测外部控制变量
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+        if ((unsigned long)millis() / 1000 - begin_time - user_time6 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0) //第二级提醒
+        {
+          if (user_mute == 0)
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+      }
+      else if (RH < user_RH && temperature < user_temperature)//符合lv_2的温湿度提醒条件
+      {
+        if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
+        {
+          if (user_mute == 0)
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+        if ((unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0) //第二级提醒
+        {
+          if (user_mute == 0)
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+      }
+      if (RH > user_RH && temperature > user_temperature)
+      {
+        if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
+        {
+          if (user_mute == 0)
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+        if ( (unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0) //第二级提醒
+        {
+          if (user_mute == 0)
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+      }
+      if (RH < user_RH && temperature > user_temperature) //符合lv_3的温湿度提醒条件
+      {
+        if ((unsigned long)millis() / 1000 - begin_time - user_time1 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0) //第一级提醒
+        {
+          if (user_mute == 0)//检测外部控制变量
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+        if ((unsigned long)millis() / 1000 - begin_time - user_time2 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time2 > 0) //第二级提醒
+        {
+          if (user_mute == 0)
+          {
+            remind1_s();
+          }
+          else
+          {
+            remind1_mute();
+          }
+        }
+      }
+    }
+
+
+    LCD1602_usual();
+    //LCD1602_usual_balance();
+
+    //以下为了测试LED灯
+    pinMode(51, OUTPUT);//LED
+    digitalWrite(51, HIGH);
+
+    /**********************************************************
+                          串口输出部分
+    ***********************************************************/
+    Serial.print("one reading:\t");
+    Serial.println(scale_get_units, 2);
+    Serial.println("Status\tHumidity (%)\tTemperature (C)\t");
+    //Serial.print(dht.getStatusString());
+    Serial.print("\t");
+    Serial.print(RH, 1);
+    Serial.print("\t\t");
+    Serial.print(temperature, 1);
+    Serial.print("\n");
+    /*Serial.print("\t\t");
+      Serial.print(dht.toFahrenheit(temperature), 1);
+      Serial.print("\t\t");
+      Serial.print(dht.computeHeatIndex(temperature, RH, false), 1);
+      Serial.print("\t");
+      Serial.println(dht.computeHeatIndex(dht.toFahrenheit(temperature), RH, true), 1);
+    */
+    /**********************************************************
+                           贝壳物联代码
+    ***********************************************************/
+    if (millis() - lastCheckInTime > postingInterval || lastCheckInTime == 0)
+    {
+      CheckIn();
+    }
+    if (millis() - lastUpdateTime > updatedInterval)
+    {
+      /*向勉益的测试接口*/
+      /*
+        updatel(DEVICEID,"17229",(float)layflag);                         //上传数据”是否在使用中“
+        updatel(DEVICEID,"17232",(float)no_drink_time);                   //上传数据”未喝水时间（min)"
+        updatel(DEVICEID,"17230",(float)no_drink_time_s);                 //上传数据"未喝水时间(s)"
+        updatel(DEVICEID,"17231",(float)drink_times);                     //上传数据"饮水次数“
+        updatel(DEVICEID,"13949",(float)recordwater[drink_times]);        //上传数据”饮水量“
+      */
+      /*吴韦举的测试接口*/
+      updatel(DEVICEID, "17243", (float)layflag);                       //上传数据”是否在使用中“
+      updatel(DEVICEID, "17244", (float)no_drink_time);                 //上传数据”未喝水时间（min)"
+      updatel(DEVICEID, "17247", (float)no_drink_time_s);               //上传数据"未喝水时间(s)"
+      updatel(DEVICEID, "17246", (float)drink_times);                   //上传数据"饮水次数“
+      updatel(DEVICEID, "17245", (float)recordwater[drink_times]);      //上传数据”饮水量“
+
+    }
+    serialEvent();                              //调用serialEvent()函数获取网站传输的指令
+    if (stringComplete)
+    {
+      inputString.trim();
+      //Serial. println( inputString);
+      if (inputString == "CLOSED")              // 如果接收到网站的指令为CLOSED,则停止连接
+      {
+        Serial. println("connect closed!");
+        CONNECT = false;
+        isCheckIn = false;
+      }
+      else                                     //否则，处理接收到的命令
+      {
+        int len = inputString.length() + 1;
+        if (inputString.startsWith("{") && inputString.endsWith("}"))
+        {
+          char jsonString[len];
+          inputString.toCharArray(jsonString, len);
+          aJsonObject * msg = aJson.parse(jsonString);
+          processMessage( msg) ;              //处理接收到的JSON数据
+          aJson.deleteItem(msg);
+        }
+      }
+      inputString = "";
+      stringComplete = false;
+    }
   }
   else
   {
-    layflag = 0;
-  }
-  Serial.print("layflag:");
-  Serial.println(layflag);//方便调试
-
-  if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 0)//第一次放入，一次饮水过程开始
-  {
-    begin_weight = scale_get_units5;
-    begin_time = (unsigned long)millis() / 1000;
-  }
-  //有物品在传感器上+上一次循环没物品+不处于一次饮水过程中，说明是第一次放入物品，一次饮水开始，记录开始的质量以及时间
-  if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 1)//第二次放入，一次饮水过程结束
-  {
-    end_time = (unsigned long)millis() / 1000;
-    timeb[drink_times] = end_time - begin_time;
-    recordwater[drink_times] = begin_weight - scale_get_units5;
-    no_drink_time_s = (end_time - begin_time) + no_drink_time_s;
-    drink_times ++;//完成一次正常的饮水,开始下一次
-    drinking_leaving = 0;
-    begin_weight = scale_get_units5;
-    begin_time = (unsigned long)millis() / 1000;//重新开始记录时间
-  }
-  if (layflag == 0 && lastlayflag == 1)//如果上一次有物品，但是这一次没有物品，说明什么?说明水杯离开水杯垫，离开水杯垫有几个可能，一个是正常饮水一个是意外碰到，需要排除意外碰到的情况,还没怎么写排除(⊙﹏⊙)
-  {
-    if (begin_weight - scale_get_units5 > 10)//如果和原来比，比原来小10g以上可认定为饮水过程中，故置其标志位为1
-    {
-      drinking_leaving = 1;//置一次饮水的”中断期“标志位为1
-    }
-  }
-  //注意：millis()溢出的情况暂未考虑到，以后补。
-  //以下均是调试过程中需要的
-  Serial.print("drink_times：");
-  Serial.println(drink_times);
-  Serial.print("recordwater：");
-  Serial.println(recordwater[drink_times - 1]);//此处有时候会是0，原因未知，很奇怪
-  Serial.print("begin_weight：");
-  Serial.println(begin_weight);
-  Serial.print("begin_time：");
-  Serial.println(begin_time);
-  Serial.print("timeb(degrees: s)：");
-  Serial.println(timeb[drink_times - 1]);//此处有时候会是0，原因未知，很奇怪
-  Serial.print("no_drink_time(degrees: s)：");
-  Serial.println(no_drink_time_s);
-  Serial.print("no_drink_time(degrees: min)：");
-  Serial.println(no_drink_time);
-  /*测试用for (int i = 0; i < 10; i++)
-    {
-    Serial.println(recordwater[i]);
-    }
-    for (int i = 0; i < 10; i++)
-    {
-    Serial.println(timeb[i]);
-    }
-  */
-  /**********************************************************
-                         提醒部分
-  ***********************************************************/
-  if (layflag == 1 && lastlayflag == 1)//连续两次检测到有物品稳定地在上面
-  {
-    if (RH > user_RH && temperature < user_temperature)//符合lv_1的温湿度提醒条件
-    {
-      if ((unsigned long)millis() / 1000 - begin_time - user_time5 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0) //第一级提醒
-      {
-        if (user_mute == 0)//检测外部控制变量
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-      if ((unsigned long)millis() / 1000 - begin_time - user_time6 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0) //第二级提醒
-      {
-        if (user_mute == 0)
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-    }
-    else if (RH < user_RH && temperature < user_temperature)//符合lv_2的温湿度提醒条件
-    {
-      if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
-      {
-        if (user_mute == 0)
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-      if ((unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0) //第二级提醒
-      {
-        if (user_mute == 0)
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-    }
-    if (RH > user_RH && temperature > user_temperature)
-    {
-      if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
-      {
-        if (user_mute == 0)
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-      if ( (unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0) //第二级提醒
-      {
-        if (user_mute == 0)
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-    }
-    if (RH < user_RH && temperature > user_temperature) //符合lv_3的温湿度提醒条件
-    {
-      if ((unsigned long)millis() / 1000 - begin_time - user_time1 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0) //第一级提醒
-      {
-        if (user_mute == 0)//检测外部控制变量
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-      if ((unsigned long)millis() / 1000 - begin_time - user_time2 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time2 > 0) //第二级提醒
-      {
-        if (user_mute == 0)
-        {
-          remind1_s();
-        }
-        else
-        {
-          remind1_mute();
-        }
-      }
-    }
-  }
-
-
-  LCD1602_usual();
-  //LCD1602_usual_balance();
-
-  //以下为了测试LED灯
-  pinMode(51, OUTPUT);//LED
-  digitalWrite(51, HIGH);
-
-  /**********************************************************
-                        串口输出部分
-  ***********************************************************/
-  Serial.print("one reading:\t");
-  Serial.print(scale_get_units, 2);
-  Serial.print("\n");
-  //  Serial.print("| average:\t");
-  // Serial.println(scale.get_units(5), 2);
-  // Serial.print("later:\t");
-  // Serial.println(scale.get_units(5) * scale_fact, 2);
-
-  Serial.println("Status\tHumidity (%)\tTemperature (C)\t");
-  //Serial.print(dht.getStatusString());
-  Serial.print("\t");
-  Serial.print(RH, 1);
-  Serial.print("\t\t");
-  Serial.print(temperature, 1);
-  Serial.print("\n");
-  /*Serial.print("\t\t");
-    Serial.print(dht.toFahrenheit(temperature), 1);
-    Serial.print("\t\t");
-    Serial.print(dht.computeHeatIndex(temperature, RH, false), 1);
-    Serial.print("\t");
-    Serial.println(dht.computeHeatIndex(dht.toFahrenheit(temperature), RH, true), 1);
-  */
-  /*old_time = 0;
-    while (millis() < old_time + 1500) {}
-    old_time = millis();*/
-
-  /**********************************************************
-                         贝壳物联代码
-  ***********************************************************/
-  if (millis() - lastCheckInTime > postingInterval || lastCheckInTime == 0)
-  {
-    CheckIn();
-  }
-  if (millis() - lastUpdateTime > updatedInterval)
-  {
-    /*向勉益的测试接口*/
-    /*
-      updatel(DEVICEID,"17229",(float)layflag);                         //上传数据”是否在使用中“
-      updatel(DEVICEID,"17232",(float)no_drink_time);                   //上传数据”未喝水时间（min)"
-      updatel(DEVICEID,"17230",(float)no_drink_time_s);                 //上传数据"未喝水时间(s)"
-      updatel(DEVICEID,"17231",(float)drink_times);                     //上传数据"饮水次数“
-      updatel(DEVICEID,"13949",(float)recordwater[drink_times]);        //上传数据”饮水量“
-    */
-    /*吴韦举的测试接口*/
-    updatel(DEVICEID, "17243", (float)layflag);                       //上传数据”是否在使用中“
-    updatel(DEVICEID, "17244", (float)no_drink_time);                 //上传数据”未喝水时间（min)"
-    updatel(DEVICEID, "17247", (float)no_drink_time_s);               //上传数据"未喝水时间(s)"
-    updatel(DEVICEID, "17246", (float)drink_times);                   //上传数据"饮水次数“
-    updatel(DEVICEID, "17245", (float)recordwater[drink_times]);      //上传数据”饮水量“
-
-  }
-  serialEvent();                              //调用serialEvent()函数获取网站传输的指令
-  if (stringComplete)
-  {
-    inputString.trim();
-    //Serial. println( inputString);
-    if (inputString == "CLOSED")              // 如果接收到网站的指令为CLOSED,则停止连接
-    {
-      Serial. println("connect closed!");
-      CONNECT = false;
-      isCheckIn = false;
-    }
-    else                                     //否则，处理接收到的命令
-    {
-      int len = inputString.length() + 1;
-      if (inputString.startsWith("{") && inputString.endsWith("}"))
-      {
-        char jsonString[len];
-        inputString.toCharArray(jsonString, len);
-        aJsonObject * msg = aJson.parse(jsonString);
-        processMessage( msg) ;              //处理接收到的JSON数据
-        aJson.deleteItem(msg);
-      }
-    }
-    inputString = "";
-    stringComplete = false;
+    LCD1602_usual_scale();
+    Serial.println(HX711_read());
   }
 }
-
-
 /**********************************************************
                         自定义函数
 ***********************************************************/
+
 /***********************************************************
-    函数名称：HX711_read
+    函数名称：HX711_read_raw
     函数功能：读取HX711发送的128位增益后的数据
-    调用函数：
+    调用函数：无
     输入参数：无
     输出参数：无
-    返回值：HX711_rawdata_128
-    说明：
+    返回值：HX711_data_128_raw
+    说明：return的是原始数据，在主程序中一般不使用！
 ***********************************************************/
-unsigned long HX711_read()
+double HX711_read_raw()
 {
-  unsigned long HX711_rawdata_128 = 0;
+  unsigned long HX711_data_128_raw = 0;
+  double HX711_data_128 = 0;
   digitalWrite(DOUT_PIN, HIGH);
   delayMicroseconds(1);
   digitalWrite(SCK_PIN, LOW);
@@ -494,23 +457,113 @@ unsigned long HX711_read()
   {
     digitalWrite(SCK_PIN, HIGH);
     delayMicroseconds(1);
-    HX711_rawdata_128 = HX711_rawdata_128 << 1;
+    HX711_data_128_raw = HX711_data_128_raw << 1;
     digitalWrite(SCK_PIN, LOW);
     delayMicroseconds(1);
     if (digitalRead(DOUT_PIN) == 1)
-    HX711_rawdata_128++;
+      HX711_data_128_raw++;
   }
   digitalWrite(SCK_PIN, HIGH);
-  HX711_rawdata_128 ^= 0x800000;//为什么要取异或？参考:https://blog.csdn.net/yanjinxu/article/details/47861323
+  HX711_data_128_raw ^= 0x800000;//为什么要取异或？参考:https://blog.csdn.net/yanjinxu/article/details/47861323
   delayMicroseconds(1);
   digitalWrite(SCK_PIN, LOW);
   delayMicroseconds(1);
-  return HX711_rawdata_128;
+  HX711_data_128 = HX711_data_128_raw / scale_factor;
+  return HX711_data_128_raw;
 }
+
+/***********************************************************
+    函数名称：HX711_read
+    函数功能：读取HX711发送的128位增益后的,再经过处理后的数据，单位为g，精度能小于0.2g
+    调用函数：HX711_read_raw()
+    输入参数：无
+    输出参数：无
+    返回值：HX711_data_128
+    说明：
+***********************************************************/
+double HX711_read()
+{
+  double HX711_data_128 = 0;
+  HX711_data_128 = (double)(HX711_read_raw() - HX711_initial_weight) / scale_factor;
+  return HX711_data_128;
+}
+
+/***********************************************************
+    函数名称：HX711_read_raw_average
+    函数功能：读取HX711发送的128位增益后的多次的平均值数据
+    调用函数：HX711_read();
+    输入参数：读取readtimes次，并取readtimes次的平均值
+    输出参数：无
+    返回值：HX711_raw_average
+    说明：return的是原始数据，在主程序中一般不使用！
+***********************************************************/
+double HX711_read_raw_average(int readtimes)
+{
+  double HX711_raw_average = 0;
+  double sum = 0;
+  for (int i = 0; i < readtimes ; i++)
+  {
+    sum += HX711_read_raw();
+  }
+  HX711_raw_average = sum / readtimes;
+  readtimes = 0;
+  return HX711_raw_average;
+}
+
+/***********************************************************
+    函数名称：HX711_read_average
+    函数功能：读取HX711发送的128位增益后的多次的平均值数据,再经过处理后的数据，单位为g，精度能小于0.2g
+    调用函数：HX711_read();
+    输入参数：读取readtimes次，并取readtimes次的平均值
+    输出参数：无
+    返回值：HX711_average
+    说明：无
+***********************************************************/
+double HX711_read_average(int readtimes)
+{
+  double HX711_average = 0;
+  double sum = 0;
+  for (int i = 0; i < readtimes ; i++)
+  {
+    sum += HX711_read();
+  }
+  HX711_average = sum / readtimes;
+  return HX711_average;
+}
+
+/***********************************************************
+    函数名称：HX711_initialize
+    函数功能：初始化HX711，记录最开始的时候的原始读数,并串口输出部分变量便于开发者调试
+    调用函数：HX711_read_raw_average
+    输入参数：
+    输出参数：无
+    返回值：无
+    说明：无
+***********************************************************/
 void HX711_initialize()
 {
-  
-  HX711_read();
+  while (1)
+  {
+    if (abs(HX711_read_raw() - HX711_read_raw_average(10)) < 1200) //防抖，大概允许抖动范围为+-3g
+    {
+      HX711_initial_weight = HX711_read_raw();
+      break;
+    }
+  }
+  Serial.print("HX711_initial_wight:");
+  Serial.println(HX711_initial_weight);
+  Serial.print("HX711_read_raw:");
+  Serial.println(HX711_read_raw());
+  Serial.print("HX711_read:");
+  Serial.println(HX711_read());
+  /*if (digitalRead(DOUT_PIN) != 1)
+    {
+    Serial.println("HX711 is OK.");
+    }
+    else
+    {
+    Serial.println("HX711 is not work.");
+    }*/
 }
 
 /***********************************************************
@@ -934,7 +987,7 @@ void LCD1602_welcome()
 }
 
 /***********************************************************
-    函数名称：LCD1602_usual_balance()
+    函数名称：LCD1602_usual_scale()
     函数功能：称重显示
     调用函数：
     输入参数：
@@ -942,7 +995,7 @@ void LCD1602_welcome()
     返回值：无
     说明：测试用，需要初始化LCD1602
 ***********************************************************/
-void LCD1602_usual_balance()
+void LCD1602_usual_scale()
 {
   if (user_backlight == 1)
   {
@@ -951,7 +1004,7 @@ void LCD1602_usual_balance()
   lcd.init();
   lcd.print("weight:");
   lcd.setCursor(0, 1);
-  lcd.print(scale.get_units() * scale_fact);
+  lcd.print(HX711_read());
   lcd.print("g");
   lcd.setCursor(0, 1); //光标还原
 }
@@ -970,7 +1023,7 @@ void scale_antishake()
 {
   for (int i = 0; i < 5; i++)
   {
-    scale_antishake_weight[i] = scale.get_units() * scale_fact;
+    scale_antishake_weight[i] = HX711_read();
   }
   for (int i = 0; i < 5; i++)
   {
@@ -982,7 +1035,7 @@ void scale_antishake()
       }
     }
   }
-  if (scale_antishake_gap < 1 && scale.get_units()*scale_fact > 10)
+  if (scale_antishake_gap < 1 && HX711_read() > 10)
   {
     layflag = 1;
   }
@@ -1080,7 +1133,7 @@ void serialEvent()
     输出参数：
     返回值：无
 ***********************************************************/
-void processMessage(aJsonObject *msg)
+void processMessage(aJsonObject * msg)
 {
   aJsonObject*method = aJson.getObjectItem(msg, "M");
   aJsonObject*content = aJson.getObjectItem(msg, "C");
