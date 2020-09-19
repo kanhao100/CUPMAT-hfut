@@ -7,5 +7,5 @@
 ### 更新代码注意：
 先创建一个新的分支，然后此分支就会为最新的master版本的代码，在此分支上修改，然后确定无致命bug后,pull request 请求merge,即可提交合并到master。小修改可以不写修改说明。<br/>
 也可以不创建新的分支，在pull request里面可以merge from master into your branch，这样就可以更新你的分支里面的代码进度与master一致，注意最后你修改完了后，执行的是是反操作也即merge form your branch into master
-### 上传项目超时请注意：
+### 上传项目出现timeout注意：
 先断开ESP8266的电源或者串口通讯再上传即可。
