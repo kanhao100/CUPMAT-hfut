@@ -165,7 +165,7 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
   if (user_scale_situation == 0)//控制进入电子秤模式
   {
     RH = DHT_readHumidity();
-    temperature = DHT_readTemperature(0);
+    temperature = DHT_readTemperature();
     scale_get_units = HX711_read();
     scale_get_units5 = HX711_read_average(5);//尽力减小loop阶段正常运行的时间,故只在loop开头实现读取一次外围数据，重复获取会导致循环时间变长，不要这样做
 
@@ -453,7 +453,7 @@ bool DHT_read() {
   
   uint32_t currenttime = millis();
   
-  if ( ((currenttime - dht_lastreadtime) < 2000)) {
+  if ( ((currenttime - dht_lastreadtime) < 1000)) {
     
     return dht_lastresult;
   
@@ -594,13 +594,13 @@ void DHT_begin(){
 
     调用函数：DHT_read
 
-    输入参数：S(单位状态数)
+    输入参数：无
 
     输出参数：f
 
     返回值：摄氏度或者华氏度
 *****************************************************/
-float DHT_readTemperature(bool S) {
+float DHT_readTemperature() {
   float f = NAN;
 
   if (DHT_read()) {
@@ -609,9 +609,6 @@ float DHT_readTemperature(bool S) {
         f = -1 - f;
       }
       f += (dht_data[3] & 0x0f) * 0.1;
-      if (S) {
-        f = f* 1.8 + 32;//华氏度
-       }
   }
   return f;
 }
