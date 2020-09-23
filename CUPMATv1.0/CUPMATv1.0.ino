@@ -26,7 +26,6 @@
                              3.删除了部分无用代码，但仍未进行系统的bug排查。
             20200923 叶**  删除了DHT相关库函数，并根据相关库函数、DHT11 datasheet和自身程序的具体需求编写了DHT_read,DHT_readTemperature,DHT_readHumdity,DHT_begin,
                              DHT_expectPulse五个函数，并且完成调试，注解DHT_read函数数据接收的相关原理和具体步骤
-                             
 
 **********************************************************/
 
@@ -449,7 +448,7 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
 ********************************************************/
 bool DHT_read() {
   uint32_t currenttime = millis();
-  if ( ((currenttime - dht_lastreadtime) < 1000)) 
+  if (((currenttime - dht_lastreadtime) < 1000))
   {
     return dht_lastresult;
   }
@@ -468,20 +467,20 @@ bool DHT_read() {
   //转变接口状态，此时使DHT11的DATA的引脚处于上拉电阻的状态，低电平信号随之变成高电平
   //DHT11的DATA转变为输出状态，首先它输出83ms的低电平脉冲，随后紧跟87ms的高电平脉冲，此时微处理器的I/O处于
   //输入状态，接受到83ms的低电平应答后就会等待87ms高电平后的数据输入
-  if (DHT_expectPulse(LOW) == UINT32_MAX) 
+  if (DHT_expectPulse(LOW) == UINT32_MAX)
   {
     Serial.println(F("DHT timeout waiting for start signal low pulse."));
     dht_lastresult = false;
     return dht_lastresult;
   }
-  if (DHT_expectPulse(HIGH) ==  UINT32_MAX) 
+  if (DHT_expectPulse(HIGH) ==  UINT32_MAX)
   {
     Serial.println(F("DHT timeout waiting for start signal high pulse."));
     dht_lastresult = false;
     return dht_lastresult;
   }
   //检测高低电平脉冲是否正常
-  for (int i = 0; i < 80; i += 2) 
+  for (int i = 0; i < 80; i += 2)
   {
     cycles[i] = DHT_expectPulse(LOW);
     cycles[i + 1] = DHT_expectPulse(HIGH);
@@ -489,30 +488,31 @@ bool DHT_read() {
     //其中这里的时间间隔以50us为单位，通过计算电平在while循环内循环次数来估计
     //出数据脉冲的占空比
   }
-  for (int i = 0; i < 40; ++i) 
+  for (int i = 0; i < 40; ++i)
   {
     uint32_t lowCycles = cycles[2 * i];
     uint32_t highCycles = cycles[2 * i + 1];
-    if ((lowCycles ==  UINT32_MAX) || (highCycles ==  UINT32_MAX)) 
+    if ((lowCycles ==  UINT32_MAX) || (highCycles ==  UINT32_MAX))
     {
       Serial.println(F("DHT timeout waiting for pulse."));
       dht_lastresult = false;
       return dht_lastresult;
     }
     dht_data[i / 8] <<= 1;
-    if (highCycles > lowCycles) {
+    if (highCycles > lowCycles)
+    {
       dht_data[i / 8] |= 1;
     }
     //将数据脉冲储存在事先定义好的数组中
     //起初数据均为0000 0000，输入第一个数据，如果为1，将0000 0000变为0000 0001，
     //并通过左移一位的位操作将0000 0001变为0000 0010，从而使得数据以串行方式输入
   }
-  if (dht_data[4] == ((dht_data[0] + dht_data[1] + dht_data[2] + dht_data[3]) & 0xFF)) 
+  if (dht_data[4] == ((dht_data[0] + dht_data[1] + dht_data[2] + dht_data[3]) & 0xFF))
   {
     dht_lastresult = true;
     return dht_lastresult;
-  } 
-  else 
+  }
+  else
   {
     Serial.println(F("DHT checksum failure!"));
     dht_lastresult = false;
@@ -521,6 +521,7 @@ bool DHT_read() {
   //存入dht_data中，前两个数据为湿度，后两个数据为温度，最后一位是通过检测前四个数的
   //和来确定输入数据的正确性
 }
+
 /**************************************************************
     函数名称：DHT_expectPulse
     函数功能：通过计算电平持续的while循环数获取粗略的
@@ -547,6 +548,7 @@ uint32_t DHT_expectPulse(bool level)
   //通过计算循环次数来计算电平状态的持续时间
   return count;
 }
+
 /*******************************************************************
     函数名称：DHT_begin
     函数功能：初始化相关变量，发送开始信号，开启读数间隔检测
@@ -556,7 +558,6 @@ uint32_t DHT_expectPulse(bool level)
     输出参数：无
     返回值：无
 ********************************************************************/
-
 void DHT_begin()
 {
   dht_maxcycles = microsecondsToClockCycles(1000);
@@ -576,15 +577,18 @@ void DHT_begin()
 float DHT_readTemperature()
 {
   float f = NAN;
-  if (DHT_read()) {
+  if (DHT_read())
+  {
     f = dht_data[2];
-    if (dht_data[3] & 0x80) {
+    if (dht_data[3] & 0x80)
+    {
       f = -1 - f;
     }
     f += (dht_data[3] & 0x0f) * 0.1;
   }
   return f;
 }
+
 /*********************************************************
     函数名称：DHT_readHumidity
     函数功能：将传感器传入的数据转变为直观的湿度百分比
@@ -631,7 +635,9 @@ double HX711_read_raw()
     digitalWrite(SCK_PIN, LOW);
     delayMicroseconds(1);
     if (digitalRead(DOUT_PIN) == 1)
+    {
       HX711_data_128_raw++;
+    }
   }
   digitalWrite(SCK_PIN, HIGH);
   HX711_data_128_raw ^= 0x800000;//为什么要取异或？参考:https://blog.csdn.net/yanjinxu/article/details/47861323
