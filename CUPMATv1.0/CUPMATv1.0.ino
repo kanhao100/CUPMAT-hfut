@@ -137,7 +137,7 @@ double scale_antishake_gap = 0;
 //以上两个是函数scale_antishake()的变量,此函数目前未完成
 
 uint8_t dht_data[5];
-uint8_t dht_pin=49;
+uint8_t dht_pin = 49;
 uint32_t dht_lastreadtime, dht_maxcycles;
 bool dht_lastresult;
 uint8_t dht_pullTime;
@@ -437,76 +437,62 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
 
 /*********************************************************
     函数名称：DHT_read
-
     函数功能：检测两次读数间隔是否超过2s，完成一次从DHT11获取
              相关数据的操作
-
     调用函数：DHT_expectPulse
-
     输入参数：无
-
-    输出参数：bool 
-
+    输出参数：bool
     返回值：dht_lastresult
 ********************************************************/
 bool DHT_read() {
-  
   uint32_t currenttime = millis();
-  
-  if ( ((currenttime - dht_lastreadtime) < 1000)) {
-    
+  if ( ((currenttime - dht_lastreadtime) < 1000)) 
+  {
     return dht_lastresult;
-  
   }
-  
   dht_lastreadtime = currenttime;
-
   dht_data[0] = dht_data[1] = dht_data[2] = dht_data[3] = dht_data[4] = 0;
-
   pinMode(dht_pin, INPUT_PULLUP);
   delay(1);
   //上拉电阻使得DHT11的DATA的引脚保持高电平，此时DHT11的引脚状态处于输入状态，时刻检测外部信号
- 
   pinMode(dht_pin, OUTPUT);
   digitalWrite(dht_pin, LOW);
-  delay(20); 
- //微处理器置低电平，持续时间应该超过18ms，最好不超过30ms，设置I/O为输入状态，DHT11接受信号并准备做出应答
- 
+  delay(20);
+  //微处理器置低电平，持续时间应该超过18ms，最好不超过30ms，设置I/O为输入状态，DHT11接受信号并准备做出应答
   uint32_t cycles[80];
-  
   pinMode(dht_pin, INPUT_PULLUP);
-
   delayMicroseconds(dht_pullTime);
- //转变接口状态，此时使DHT11的DATA的引脚处于上拉电阻的状态，低电平信号随之变成高电平
- //DHT11的DATA转变为输出状态，首先它输出83ms的低电平脉冲，随后紧跟87ms的高电平脉冲，此时微处理器的I/O处于
- //输入状态，接受到83ms的低电平应答后就会等待87ms高电平后的数据输入
-    
-    if (DHT_expectPulse(LOW) == UINT32_MAX) {
-      Serial.println(F("DHT timeout waiting for start signal low pulse."));
-      dht_lastresult = false;
-      return dht_lastresult;
-    }
-    if (DHT_expectPulse(HIGH) ==  UINT32_MAX) {
-      Serial.println(F("DHT timeout waiting for start signal high pulse."));
-      dht_lastresult = false;
-      return dht_lastresult;
-    }
+  //转变接口状态，此时使DHT11的DATA的引脚处于上拉电阻的状态，低电平信号随之变成高电平
+  //DHT11的DATA转变为输出状态，首先它输出83ms的低电平脉冲，随后紧跟87ms的高电平脉冲，此时微处理器的I/O处于
+  //输入状态，接受到83ms的低电平应答后就会等待87ms高电平后的数据输入
+  if (DHT_expectPulse(LOW) == UINT32_MAX) 
+  {
+    Serial.println(F("DHT timeout waiting for start signal low pulse."));
+    dht_lastresult = false;
+    return dht_lastresult;
+  }
+  if (DHT_expectPulse(HIGH) ==  UINT32_MAX) 
+  {
+    Serial.println(F("DHT timeout waiting for start signal high pulse."));
+    dht_lastresult = false;
+    return dht_lastresult;
+  }
   //检测高低电平脉冲是否正常
-    
-    for (int i = 0; i < 80; i += 2) {
-      cycles[i] = DHT_expectPulse(LOW);
-      cycles[i + 1] = DHT_expectPulse(HIGH);
-      //形成数据脉冲，前一部分储存低电平持续时间，后一部分储存高电平持续时间
-      //其中这里的时间间隔以50us为单位，通过计算电平在while循环内循环次数来估计
-      //出数据脉冲的占空比
-    }
-
-  
-  for (int i = 0; i < 40; ++i) {
+  for (int i = 0; i < 80; i += 2) 
+  {
+    cycles[i] = DHT_expectPulse(LOW);
+    cycles[i + 1] = DHT_expectPulse(HIGH);
+    //形成数据脉冲，前一部分储存低电平持续时间，后一部分储存高电平持续时间
+    //其中这里的时间间隔以50us为单位，通过计算电平在while循环内循环次数来估计
+    //出数据脉冲的占空比
+  }
+  for (int i = 0; i < 40; ++i) 
+  {
     uint32_t lowCycles = cycles[2 * i];
     uint32_t highCycles = cycles[2 * i + 1];
-    if ((lowCycles ==  UINT32_MAX) || (highCycles ==  UINT32_MAX)) {
-     Serial.println(F("DHT timeout waiting for pulse."));
+    if ((lowCycles ==  UINT32_MAX) || (highCycles ==  UINT32_MAX)) 
+    {
+      Serial.println(F("DHT timeout waiting for pulse."));
       dht_lastresult = false;
       return dht_lastresult;
     }
@@ -518,12 +504,14 @@ bool DHT_read() {
     //起初数据均为0000 0000，输入第一个数据，如果为1，将0000 0000变为0000 0001，
     //并通过左移一位的位操作将0000 0001变为0000 0010，从而使得数据以串行方式输入
   }
-
-  if (dht_data[4] == ((dht_data[0] + dht_data[1] + dht_data[2] + dht_data[3]) & 0xFF)) {
+  if (dht_data[4] == ((dht_data[0] + dht_data[1] + dht_data[2] + dht_data[3]) & 0xFF)) 
+  {
     dht_lastresult = true;
     return dht_lastresult;
-  } else {
-   Serial.println(F("DHT checksum failure!"));
+  } 
+  else 
+  {
+    Serial.println(F("DHT checksum failure!"));
     dht_lastresult = false;
     return dht_lastresult;
   }
@@ -532,106 +520,83 @@ bool DHT_read() {
 }
 /**************************************************************
     函数名称：DHT_expectPulse
-
     函数功能：通过计算电平持续的while循环数获取粗略的
              数据脉冲
-
     调用函数：无
-
     输入参数：level(脉冲电平状态)
-
-    输出参数：uint32_t 
-
+    输出参数：uint32_t
     返回值：count
 ***************************************************************/
-uint32_t DHT_expectPulse(bool level) {
-
+uint32_t DHT_expectPulse(bool level)
+{
 #if (F_CPU > 16000000L)
   uint32_t count = 0;
 #else
-  uint16_t count = 0; 
+  uint16_t count = 0;
 #endif
-
-while (digitalRead(dht_pin) == level) {
-    if (count++ >= dht_maxcycles) {
-     return  UINT32_MAX; 
+  while (digitalRead(dht_pin) == level)
+  {
+    if (count++ >= dht_maxcycles)
+    {
+      return  UINT32_MAX;
     }
-}
-//通过计算循环次数来计算电平状态的持续时间
+  }
+  //通过计算循环次数来计算电平状态的持续时间
   return count;
 }
 /*******************************************************************
     函数名称：DHT_begin
-
     函数功能：初始化相关变量，发送开始信号，开启读数间隔检测
              初始化上拉时间
-    
     调用函数：microsecondsToClockCycles
-
     输入参数：无
-
     输出参数：无
-
     返回值：无
 ********************************************************************/
 
-void DHT_begin(){
-  
-  dht_maxcycles =microsecondsToClockCycles(1000);
-  
+void DHT_begin()
+{
+  dht_maxcycles = microsecondsToClockCycles(1000);
   pinMode(dht_pin, INPUT_PULLUP);
-  
   dht_lastreadtime = millis() - 2000;//用于确保dht两次完整读数间隔超过2s的参数
-  
   dht_pullTime = 55;//保证DHT11充分上拉的时间间隔
-  
-  }
+}
 
 /****************************************************
     函数名称：DHT_readTemperature
-
     函数功能：将传感器传入的数据转变为直观的温度数值
-
     调用函数：DHT_read
-
     输入参数：无
-
     输出参数：f
-
     返回值：摄氏度或者华氏度
 *****************************************************/
-float DHT_readTemperature() {
+float DHT_readTemperature()
+{
   float f = NAN;
-
   if (DHT_read()) {
-      f = dht_data[2];
-      if (dht_data[3] & 0x80) {
-        f = -1 - f;
-      }
-      f += (dht_data[3] & 0x0f) * 0.1;
+    f = dht_data[2];
+    if (dht_data[3] & 0x80) {
+      f = -1 - f;
+    }
+    f += (dht_data[3] & 0x0f) * 0.1;
   }
   return f;
 }
 /*********************************************************
     函数名称：DHT_readHumidity
-
     函数功能：将传感器传入的数据转变为直观的湿度百分比
-
     调用函数：DHT_read
-
     输入参数：无
-
     输出参数：f
-
     返回值：湿度百分比
 **************************************************************/
-float DHT_readHumidity() {
-  
+float DHT_readHumidity()
+{
   float f = NAN;
-  
-  if (DHT_read()) {
-     f = dht_data[0] + dht_data[1] * 0.1;
- }
+  if (DHT_read())
+  {
+    f = dht_data[0] + dht_data[1] * 0.1;
+  }
   return f;
 }
 
