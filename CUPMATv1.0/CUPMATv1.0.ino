@@ -8,7 +8,7 @@
                     维护此项目请做好测试以及写好修改说明
                     下一步工作使用三线程，我将继续修复bug,以及重写导入的库文件所用到的函数以及简化代码，向**将为此项目添加esp8266串口数据传输的功能，成**继续完成提醒部分的程序
     bug备忘录：
-              提醒时拿走水杯应该立即停止提醒
+              提醒时拿走水杯应该立即停止提醒  已尝试解决
 
     修改记录:20200830  成**   创建
             20200831 吴**  格式优化；代码整合；细节优化；
@@ -26,6 +26,8 @@
                              3.删除了部分无用代码，但仍未进行系统的bug排查。
             20200923 叶**  删除了DHT相关库函数，并根据相关库函数、DHT11 datasheet和自身程序的具体需求编写了DHT_read,DHT_readTemperature,DHT_readHumdity,DHT_begin,
                              DHT_expectPulse五个函数，并且完成调试，注解DHT_read函数数据接收的相关原理和具体步骤
+            20200927 吴**  尝试解决了提醒时拿走水杯应该立即停止提醒的问题，改变了部分端口的宏定义参数名字,优化输出部分函数，将remind_mute删除，将静音提醒部分融入函数，主程序中无需在做
+                            user_mute的取值判定。未进行调试。
 
 **********************************************************/
 
@@ -40,9 +42,13 @@
 /**********************************************************
                         宏定义
 ***********************************************************/
-#define DHT11_PIN 49
-#define DOUT_PIN 2
-#define SCK_PIN 3
+#define DHT11_PIN 49 //DHT11数据线
+#define DOUT_PIN 2   //HX711数据线
+#define SCK_PIN 3    //HX711时钟线
+#define LED1 51      //第一个lcd灯使用51号digital端口
+#define BUZZER1 53   //53号数字端口，与有源蜂鸣器的VCC连接，是蜂鸣器的主供电口。
+#define BUZZER2 52   //52号数字端口，低电平触发蜂鸣，是蜂鸣器的控制端口。
+//uint8_t DHT11_PIN = 49;
 /*完全重现此测试项目需要如下连接：
   DHT11 DATA----D49，
   HX711 DT----A2  SCK----A3
@@ -139,7 +145,6 @@ double scale_antishake_gap = 0;
 //以上两个是函数scale_antishake()的变量,此函数目前未完成
 
 uint8_t dht_data[5];
-uint8_t dht_pin = 49;
 uint32_t dht_lastreadtime, dht_maxcycles;
 bool dht_lastresult;
 uint8_t dht_pullTime;
@@ -248,102 +253,46 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
     {
       if (RH > user_RH && temperature < user_temperature)//符合lv_1的温湿度提醒条件
       {
-        if ((unsigned long)millis() / 1000 - begin_time - user_time5 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0) //第一级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time5 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0 && drinking_leaving == 0) //第一级提醒
         {
-          if (user_mute == 0)//检测外部控制变量
-          {
-            remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
+           remind1_s();
         }
-        if ((unsigned long)millis() / 1000 - begin_time - user_time6 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0) //第二级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time6 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0 && drinking_leaving == 0) //第二级提醒
         {
-          if (user_mute == 0)
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
       }
       else if (RH < user_RH && temperature < user_temperature)//符合lv_2的温湿度提醒条件
       {
-        if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0 && drinking_leaving == 0)//第一级提醒
         {
-          if (user_mute == 0)
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
-        if ((unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0) //第二级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0 && drinking_leaving == 0) //第二级提醒
         {
-          if (user_mute == 0)
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
       }
       if (RH > user_RH && temperature > user_temperature)
       {
-        if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0)//第一级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0 && drinking_leaving == 0)//第一级提醒
         {
-          if (user_mute == 0)
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
-        if ( (unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0) //第二级提醒
+        if ( (unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0 && drinking_leaving == 0) //第二级提醒
         {
-          if (user_mute == 0)
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
       }
       if (RH < user_RH && temperature > user_temperature) //符合lv_3的温湿度提醒条件
       {
-        if ((unsigned long)millis() / 1000 - begin_time - user_time1 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0) //第一级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time1 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0 && drinking_leaving == 0) //第一级提醒
         {
-          if (user_mute == 0)//检测外部控制变量
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
-        if ((unsigned long)millis() / 1000 - begin_time - user_time2 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time2 > 0) //第二级提醒
+        if ((unsigned long)millis() / 1000 - begin_time - user_time2 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time2 > 0 && drinking_leaving == 0) //第二级提醒
         {
-          if (user_mute == 0)
-          {
             remind1_s();
-          }
-          else
-          {
-            remind1_mute();
-          }
         }
       }
     }
@@ -454,15 +403,15 @@ bool DHT_read() {
   }
   dht_lastreadtime = currenttime;
   dht_data[0] = dht_data[1] = dht_data[2] = dht_data[3] = dht_data[4] = 0;
-  pinMode(dht_pin, INPUT_PULLUP);
+  pinMode(DHT11_PIN, INPUT_PULLUP);
   delay(1);
   //上拉电阻使得DHT11的DATA的引脚保持高电平，此时DHT11的引脚状态处于输入状态，时刻检测外部信号
-  pinMode(dht_pin, OUTPUT);
-  digitalWrite(dht_pin, LOW);
+  pinMode(DHT11_PIN, OUTPUT);
+  digitalWrite(DHT11_PIN, LOW);
   delay(20);
   //微处理器置低电平，持续时间应该超过18ms，最好不超过30ms，设置I/O为输入状态，DHT11接受信号并准备做出应答
   uint32_t cycles[80];
-  pinMode(dht_pin, INPUT_PULLUP);
+  pinMode(DHT11_PIN, INPUT_PULLUP);
   delayMicroseconds(dht_pullTime);
   //转变接口状态，此时使DHT11的DATA的引脚处于上拉电阻的状态，低电平信号随之变成高电平
   //DHT11的DATA转变为输出状态，首先它输出83ms的低电平脉冲，随后紧跟87ms的高电平脉冲，此时微处理器的I/O处于
@@ -538,7 +487,7 @@ uint32_t DHT_expectPulse(bool level)
 #else
   uint16_t count = 0;
 #endif
-  while (digitalRead(dht_pin) == level)
+  while (digitalRead(DHT11_PIN) == level)
   {
     if (count++ >= dht_maxcycles)
     {
@@ -561,7 +510,7 @@ uint32_t DHT_expectPulse(bool level)
 void DHT_begin()
 {
   dht_maxcycles = microsecondsToClockCycles(1000);
-  pinMode(dht_pin, INPUT_PULLUP);
+  pinMode(DHT11_PIN, INPUT_PULLUP);
   dht_lastreadtime = millis() - 2000;//用于确保dht两次完整读数间隔超过2s的参数
   dht_pullTime = 55;//保证DHT11充分上拉的时间间隔
 }
@@ -757,16 +706,11 @@ void remind1()
 {
   unsigned long old_time = 0;
   unsigned long old_time1 = 0;
-  int led1 = 51;    //第一个lcd灯使用51号digital端口
-  int buzzer1 = 53; //53号数字端口，与有源蜂鸣器的VCC连接，是蜂鸣器的主供电口。
-  int buzzer2 = 52; //52号数字端口，低电平触发蜂鸣，是蜂鸣器的控制端口。
-
-  pinMode(buzzer1, OUTPUT);
-  digitalWrite(buzzer1, HIGH);
-  digitalWrite(buzzer2, HIGH);
-  pinMode(buzzer2, OUTPUT);
-  pinMode(led1, OUTPUT);
-
+  pinMode(BUZZER1, OUTPUT);
+  digitalWrite(BUZZER1, HIGH);
+  digitalWrite(BUZZER2, HIGH);
+  pinMode(BUZZER2, OUTPUT);
+  pinMode(LED1, OUTPUT);
   lcd.init();
   if (user_backlight == 1)
   {
@@ -821,43 +765,60 @@ void remind1()
     lcd.setCursor(0, 1);
   } //手动换行
   lcd.print("!");
-
-  digitalWrite(buzzer2, LOW);
-  digitalWrite(led1, HIGH);
+  if (user_mute == 0)
+  {
+    digitalWrite(BUZZER2, LOW);
+  }
+  digitalWrite(LED1, HIGH);
   old_time = millis();
   while (millis() < old_time + 3000)
   {
+    if (drinking_leaving == 1)
+    {
+      goto remind_over;
+    }
   }
   old_time = millis(); //延时3s
   // if (millis() > old_time + 3000) {
   //   old_time = millis();
-  digitalWrite(led1, LOW);
-  digitalWrite(buzzer2, HIGH);
+  digitalWrite(LED1, LOW);
+  digitalWrite(BUZZER2, HIGH);
   while (millis() < old_time + 20000)
   {
-    digitalWrite(buzzer2, LOW);
-    digitalWrite(led1, HIGH);
+    if (user_mute == 0)
+    {
+      digitalWrite(BUZZER2, LOW);
+    }
+    digitalWrite(LED1, HIGH);
     if (user_blink == 1)
     {
       lcd.display();
     }
     while (millis() < old_time1 + 500)
     {
+      if (drinking_leaving == 1)
+      {
+        goto remind_over;
+      }
     }
     old_time1 = millis();
-    digitalWrite(buzzer2, HIGH);
-    digitalWrite(led1, LOW);
+    digitalWrite(BUZZER2, HIGH);
+    digitalWrite(LED1, LOW);
     if (user_blink == 1)
     {
       lcd.noDisplay();
     }
     while (millis() < old_time1 + 500)
     {
+      if (drinking_leaving == 1)
+      {
+        goto remind_over;
+      }
     }
     old_time1 = millis();
   }
+remind_over:
   old_time = millis();
-  //  }
 }
 
 /***********************************************************
@@ -875,15 +836,11 @@ void remind1_s()
 {
   unsigned long old_time = 0;
   unsigned long old_time1 = 0;
-  int led1 = 51;    //第一个lcd灯使用51号digital端口
-  int buzzer1 = 53; //53号数字端口，与有源蜂鸣器的VCC连接，是蜂鸣器的主供电口。
-  int buzzer2 = 52; //52号数字端口，低电平触发蜂鸣，是蜂鸣器的控制端口。
-
-  pinMode(buzzer1, OUTPUT);
-  digitalWrite(buzzer1, HIGH);
-  digitalWrite(buzzer2, HIGH);
-  pinMode(buzzer2, OUTPUT);
-  pinMode(led1, OUTPUT);
+  pinMode(BUZZER1, OUTPUT);
+  digitalWrite(BUZZER1, HIGH);
+  digitalWrite(BUZZER2, HIGH);
+  pinMode(BUZZER2, OUTPUT);
+  pinMode(LED1, OUTPUT);
 
   lcd.init();
   if (user_backlight == 1)
@@ -934,149 +891,58 @@ void remind1_s()
   } //手动换行
   lcd.print("!");
   lcd.print("!");
-
-  digitalWrite(buzzer2, LOW);
-  digitalWrite(led1, HIGH);
+  if (user_mute == 0)
+  {
+    digitalWrite(BUZZER2, LOW);
+  }
+  digitalWrite(LED1, HIGH);
   old_time = millis();
   while (millis() < old_time + 3000)
   {
+    if (drinking_leaving == 1)
+    {
+      goto remind_over;
+    }
   }
   old_time = millis(); //延时3s
-  // if (millis() > old_time + 3000) {
-  //   old_time = millis();
-  digitalWrite(led1, LOW);
-  digitalWrite(buzzer2, HIGH);
+  digitalWrite(LED1, LOW);
+  digitalWrite(BUZZER2, HIGH);
   while (millis() < old_time + 20000)
   {
-    digitalWrite(buzzer2, LOW);
-    digitalWrite(led1, HIGH);
+    if (user_mute == 0)
+    {
+      digitalWrite(BUZZER2, LOW);
+    }
+    digitalWrite(LED1, HIGH);
     if (user_blink == 1)
     {
       lcd.display();
     }
     while (millis() < old_time1 + 500)
     {
+      if (drinking_leaving == 1)
+      {
+        goto remind_over;
+      }
     }
     old_time1 = millis();
-    digitalWrite(buzzer2, HIGH);
-    digitalWrite(led1, LOW);
+    digitalWrite(BUZZER2, HIGH);
+    digitalWrite(LED1, LOW);
     if (user_blink == 1)
     {
       lcd.noDisplay();
     }
     while (millis() < old_time1 + 500)
     {
+      if (drinking_leaving == 1)
+      {
+        goto remind_over;
+      }
     }
     old_time1 = millis();
   }
+remind_over:
   old_time = millis();
-  //  }
-}
-
-/***********************************************************
-    函数名称：remind1_mute()
-    函数功能：remind1静音提醒版，比remind少一个蜂鸣器，其它一致。
-    调用函数：
-    输入参数：
-    输出参数：
-    返回值：无
-    说明：需要初始化LCD1602
-***********************************************************/
-void remind1_mute()
-{
-  unsigned long old_time = 0;
-  unsigned long old_time1 = 0;
-  int led1 = 51; //第一个lcd灯使用51号端口
-
-  pinMode(led1, OUTPUT);
-  lcd.init();
-
-  if (user_backlight == 1)
-  {
-    lcd.backlight();
-  }
-  uint8_t yi[8] = {0x1F, 0x01, 0x11, 0x1F, 0x10, 0x10, 0x11, 0x1F};
-  uint8_t yin[8] = {0x0A, 0x1F, 0x15, 0x0A, 0x0A, 0x0B, 0x0F, 0x0D};
-  uint8_t shui[8] = {0x04, 0x04, 0x15, 0x0E, 0x0E, 0x15, 0x0C, 0x04};
-  uint8_t wei[8] = {0x04, 0x0E, 0x04, 0x1F, 0x0E, 0x15, 0x15, 0x15};
-  uint8_t ma[8] = {0x1E, 0x0A, 0x0A, 0x0F, 0x01, 0x1F, 0x01, 0x03};
-  uint8_t shang[8] = {0x04, 0x04, 0x04, 0x07, 0x04, 0x04, 0x04, 0x1F}; //字库像素点的定义
-  lcd.createChar(0, yi);
-  lcd.createChar(1, yin);
-  lcd.createChar(2, shui);
-  lcd.createChar(3, wei);
-  lcd.createChar(4, ma);
-  lcd.createChar(5, shang);
-  lcd.clear();
-  lcd.write(byte(0));
-  if (no_drink_time <= 60)
-  {
-    lcd.print(no_drink_time);
-    lcd.print("min");
-  }
-  else
-  {
-    lcd.print((int)no_drink_time / 60);
-    lcd.print("h");
-    lcd.print(no_drink_time - ((int)no_drink_time / 60) * 60);
-    lcd.print("min");
-  }
-  lcd.write(byte(3));
-  lcd.write(byte(1));
-  lcd.write(byte(2));
-  lcd.print(",");
-  lcd.write(byte(4));
-  lcd.write(byte(5));
-  lcd.write(byte(1));
-  if (no_drink_time > 600)
-  {
-    lcd.setCursor(0, 1);
-  } //手动换行
-  lcd.write(byte(2));
-  if (no_drink_time > 60 && no_drink_time <= 600)
-  {
-    lcd.setCursor(0, 1);
-  } //手动换行
-  lcd.print("!");
-  lcd.print("!");
-  if (no_drink_time <= 60)
-  {
-    lcd.setCursor(0, 1);
-  } //手动换行
-  lcd.print("!");
-
-  digitalWrite(led1, HIGH);
-  old_time = millis();
-  while (millis() < old_time + 3000)
-  {
-  }
-  old_time = millis(); //延时3s
-  // if (millis() > old_time + 3000) {
-  //   old_time = millis();
-  digitalWrite(led1, LOW);
-  while (millis() < old_time + 20000)
-  {
-    digitalWrite(led1, HIGH);
-    if (user_blink == 1)
-    {
-      lcd.display();
-    }
-    while (millis() < old_time1 + 500)
-    {
-    }
-    old_time1 = millis();
-    digitalWrite(led1, LOW);
-    if (user_blink == 1)
-    {
-      lcd.noDisplay();
-    }
-    while (millis() < old_time1 + 500)
-    {
-    }
-    old_time1 = millis();
-  }
-  old_time = millis();
-  //  }
 }
 
 /***********************************************************
@@ -1327,3 +1193,118 @@ void processMessage(aJsonObject * msg)
     isCheckIn = true;
   }
 }
+
+/***********************************************************
+    函数名称：remind1_mute()
+    函数功能：remind1静音提醒版，比remind少一个蜂鸣器，其它一致。
+    调用函数：
+    输入参数：
+    输出参数：
+    返回值：无
+    说明：需要初始化LCD1602，现已弃用，全部打成了注释
+***********************************************************/
+/*
+void remind1_mute()
+{
+  unsigned long old_time = 0;
+  unsigned long old_time1 = 0;
+  pinMode(LED1, OUTPUT);
+  lcd.init();
+  if (user_backlight == 1)
+  {
+    lcd.backlight();
+  }
+  uint8_t yi[8] = {0x1F, 0x01, 0x11, 0x1F, 0x10, 0x10, 0x11, 0x1F};
+  uint8_t yin[8] = {0x0A, 0x1F, 0x15, 0x0A, 0x0A, 0x0B, 0x0F, 0x0D};
+  uint8_t shui[8] = {0x04, 0x04, 0x15, 0x0E, 0x0E, 0x15, 0x0C, 0x04};
+  uint8_t wei[8] = {0x04, 0x0E, 0x04, 0x1F, 0x0E, 0x15, 0x15, 0x15};
+  uint8_t ma[8] = {0x1E, 0x0A, 0x0A, 0x0F, 0x01, 0x1F, 0x01, 0x03};
+  uint8_t shang[8] = {0x04, 0x04, 0x04, 0x07, 0x04, 0x04, 0x04, 0x1F}; //字库像素点的定义
+  lcd.createChar(0, yi);
+  lcd.createChar(1, yin);
+  lcd.createChar(2, shui);
+  lcd.createChar(3, wei);
+  lcd.createChar(4, ma);
+  lcd.createChar(5, shang);
+  lcd.clear();
+  lcd.write(byte(0));
+  if (no_drink_time <= 60)
+  {
+    lcd.print(no_drink_time);
+    lcd.print("min");
+  }
+  else
+  {
+    lcd.print((int)no_drink_time / 60);
+    lcd.print("h");
+    lcd.print(no_drink_time - ((int)no_drink_time / 60) * 60);
+    lcd.print("min");
+  }
+  lcd.write(byte(3));
+  lcd.write(byte(1));
+  lcd.write(byte(2));
+  lcd.print(",");
+  lcd.write(byte(4));
+  lcd.write(byte(5));
+  lcd.write(byte(1));
+  if (no_drink_time > 600)
+  {
+    lcd.setCursor(0, 1);
+  } //手动换行
+  lcd.write(byte(2));
+  if (no_drink_time > 60 && no_drink_time <= 600)
+  {
+    lcd.setCursor(0, 1);
+  } //手动换行
+  lcd.print("!");
+  lcd.print("!");
+  if (no_drink_time <= 60)
+  {
+    lcd.setCursor(0, 1);
+  } //手动换行
+  lcd.print("!");
+
+  digitalWrite(LED1, HIGH);
+  old_time = millis();
+  while (millis() < old_time + 3000)
+  {
+    if (drinking_leaving == 1)
+    {
+      goto remind_over;
+    }
+  }
+  old_time = millis(); //延时3s
+  digitalWrite(LED1, LOW);
+  while (millis() < old_time + 20000)
+  {
+    digitalWrite(LED1, HIGH);
+    if (user_blink == 1)
+    {
+      lcd.display();
+    }
+    while (millis() < old_time1 + 500)
+    {
+      if (drinking_leaving == 1)
+      {
+        goto remind_over;
+      }
+    }
+    old_time1 = millis();
+    digitalWrite(LED1, LOW);
+    if (user_blink == 1)
+    {
+      lcd.noDisplay();
+    }
+    while (millis() < old_time1 + 500)
+    {
+      if (drinking_leaving == 1)
+      {
+        goto remind_over;
+      }
+    }
+    old_time1 = millis();
+  }
+remind_over:
+  old_time = millis();
+}
+*/
