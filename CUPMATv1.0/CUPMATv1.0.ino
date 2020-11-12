@@ -8,8 +8,7 @@
                     维护此项目请做好测试以及写好修改说明
                     下一步工作使用三线程，我将继续修复bug,以及重写导入的库文件所用到的函数以及简化代码，向勉益将为此项目添加esp8266串口数据传输的功能，成帅继续完成提醒部分的程序
     bug备忘录：
-              提醒时拿走水杯应该立即停止提醒  已尝试解决
-              
+
     工作备忘录：
     机械结构（多个LED灯，设计一个重置按键，以及开关按键
     物联网彻底实现
@@ -18,7 +17,7 @@
     ppt做好
 
     修改记录:20200830  成帅   创建
-            20200831 吴韦举  格式优化；代码整合；细节优化；
+            20200831 吴韦举  格式优化；代码整合；细节优化；避免使用delay()函数，改用mills()相关的。
                             试图编写scale_antishake()函数，失败，暂时弃用了
             20200902 吴韦举  添加LCD1602_initialize(),LCD1602_welcome()两个开机显示函数
                             用remind1_s()暂时替代remind1()，前者显示秒数，因为在开发者调试过程中，分钟时间过长，不方便，开发者使用后者调试更方便
@@ -33,11 +32,16 @@
                              3.删除了部分无用代码，但仍未进行系统的bug排查。
             20200923 叶文乐  删除了DHT相关库函数，并根据相关库函数、DHT11 datasheet和自身程序的具体需求编写了DHT_read,DHT_readTemperature,DHT_readHumdity,DHT_begin,
                              DHT_expectPulse五个函数，并且完成调试，注解DHT_read函数数据接收的相关原理和具体步骤
-            20200927 吴韦举  尝试解决了提醒时拿走水杯应该立即停止提醒的问题，改变了部分端口的宏定义参数名字,优化输出部分函数，将remind_mute删除，将静音提醒部分融入函数，主程序中无需在做
-                            user_mute的取值判定。未进行调试。
-                            解决失败，需要重新修改。
-            20201020 吴韦举 添加了异常处理提示的代码，解决了在硬件连线不正确的时候，无法初始化，无法串口输出，又没有报错，在各传感器的读取函数中增加了错误提示（串口输出），便于开发者调试。
-            20201111 吴韦举 
+            20200927 吴韦举  尝试解决了提醒时拿走水杯应该立即停止提醒的问题，改变了部分端口的宏定义参数名字,优化输出部分函数，将remind_mute删除，将静音提醒部分融入remind系列函数，主程
+                            序中无需再做user_mute的取值判定。未进行调试。
+            20200929        上一次的工作解决失败，需要重新修改。
+            20201020 吴韦举  添加了异常处理提示的代码，解决了在硬件连线不正确的时候，无法初始化，无法串口输出，又没有报错，在各传感器的读取函数中增加了错误提示（串口输出），便于开发者调试。
+            20201111 吴韦举  修改了部分元件的连接端口，连线更合理，修复了recordweight可能会出现负质量的问题，出现负质量不予认定为一次饮水过程的结束。remind系列函数进行了部分优化，另外
+                            经测试LCD1602_ususl()此函数耗时长，需要大概1s，是影响loop循环速度的主要影响问题，测得第二个耗时长的函数为HX711_read_average(int),除去这两个函数以后
+                            loop循环可在100ms左右很快完成，这些数据为以后的工作提供了参考。
+            20201112 吴韦举  解决了提醒时拿走水杯应该立即停止提醒的问题，解决方案是使用了MsTimer2库实现便捷的实现了定时器中断，并写了一个中断函数detection(),用来在进入remind系列函数
+                            的时候对HX711每隔500ms进行一次读取。可能存在的问题是detection()耗时过长，导致3+20s的remind1提醒的时间不够精确，有待以后研究解决。
+
 
 **********************************************************/
 
@@ -47,7 +51,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h> //这两个库是与LCD1602有关的库文件
 #include <aJSON.h>
-//此板块以后将进行整理，将库文件里面我们需要的代码进行重写，现在暂时使用他人的库函数
+#include <MsTimer2.h>
 
 /**********************************************************
                         宏定义
@@ -55,7 +59,7 @@
 #define DHT11_PIN 4 //DHT11数据线
 #define DOUT_PIN 2   //HX711数据线
 #define SCK_PIN 3    //HX711时钟线
-#define LED1 52      //第一个lcd灯暂定使用52号digital端口
+#define LED1 52      //第一个lcd灯使用51号digital端口
 #define BUZZER1 51   //53号数字端口，与有源蜂鸣器的VCC连接，是蜂鸣器的主供电口。
 #define BUZZER2 53   //52号数字端口，低电平触发蜂鸣，是蜂鸣器的控制端口。
 //uint8_t DHT11_PIN = 49;
@@ -64,7 +68,7 @@
   HX711 DT----D2  SCK----D3
   LED  VCC----D52
   LCD1602_I2C  SCL----SCL   SDA----SDA
-  BEEP I/O----D53  VCC---D51
+  BEEP I/O----D51  VCC---D53
   Esp8266-01 RX----TX,TX----RX
 */
 
@@ -112,8 +116,8 @@ int user_time1 = 20;
 int user_time2 = 30;
 int user_time3 = 40;
 int user_time4 = 50;
-int user_time5 = 60;
-int user_time6 = 70;    //设置的六个提醒时间
+int user_time5 = 20;
+int user_time6 = 60;    //设置的六个提醒时间
 
 /**********************************************************
                       全局内部变量定义
@@ -178,7 +182,6 @@ void setup()
 
 void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好不要超过2s
 {
-  //delay(dht.getMinimumSamplingPeriod());//忘了什么用了，貌似没用
   if (user_scale_situation == 0)//控制进入电子秤模式
   {
     RH = DHT_readHumidity();
@@ -215,14 +218,21 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
     //有物品在传感器上+上一次循环没物品+不处于一次饮水过程中，说明是第一次放入物品，一次饮水开始，记录开始的质量以及时间
     if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 1)//第二次放入，一次饮水过程结束
     {
-      end_time = (unsigned long)millis() / 1000;
-      timeb[drink_times] = end_time - begin_time;
-      recordwater[drink_times] = begin_weight - scale_get_units5;
-      no_drink_time_s = (end_time - begin_time) + no_drink_time_s;
-      drink_times ++;//完成一次正常的饮水,开始下一次
-      drinking_leaving = 0;
-      begin_weight = scale_get_units5;
-      begin_time = (unsigned long)millis() / 1000;//重新开始记录时间
+      if (begin_weight - scale_get_units5 > 1)
+      {
+        end_time = (unsigned long)millis() / 1000;
+        timeb[drink_times] = end_time - begin_time;
+        recordwater[drink_times] = begin_weight - scale_get_units5;
+        no_drink_time_s = (end_time - begin_time) + no_drink_time_s;
+        drink_times ++;//完成一次正常的饮水,开始下一次
+        drinking_leaving = 0;
+        begin_weight = scale_get_units5;
+        begin_time = (unsigned long)millis() / 1000;//重新开始记录时间
+      }
+      else
+      {
+        // ...
+      }
     }
     if (layflag == 0 && lastlayflag == 1)//如果上一次有物品，但是这一次没有物品，说明什么?说明水杯离开水杯垫，离开水杯垫有几个可能，一个是正常饮水一个是意外碰到，需要排除意外碰到的情况,还没怎么写排除(⊙﹏⊙)
     {
@@ -308,8 +318,7 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
     }
 
 
-    LCD1602_usual();
-    //LCD1602_usual_balance();
+    LCD1602_usual();//经测试，此为loop循环占用时间最多的语句，大约需要1秒才能执行完。
 
     //以下为了测试LED灯
     pinMode(51, OUTPUT);//LED
@@ -395,6 +404,58 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
 /**********************************************************
                         自定义函数
 ***********************************************************/
+/*********************************************************
+    函数名称：detection
+    函数功能：读取HX711数据，并判断处于什么饮水期，定时器中断函数。
+    调用函数：很多
+    输入参数：无
+    输出参数：
+    返回值：
+********************************************************/
+void detection() {
+  for (int i = 0; i < 2; i++)
+  {
+    Serial.println("Enter interrupt mode successly!!!");
+    scale_get_units = HX711_read();
+    if (layflag == 1)
+    {
+      lastlayflag = 1;
+    }
+    else if (layflag == 0)
+    {
+      lastlayflag = 0;
+    }//保存一下上一次循环的标识符
+
+    //检测是否有物品在传感器上。如果有，将layflag置1
+    if (scale_get_units >= 10)
+    {
+      layflag = 1;//layflag仅仅只能说明有物品放在传感器上，并不能说明进入计时的模式了，所以我们以后希望设置一个按键，按下后，方可进入提醒模式
+    }
+    else
+    {
+      layflag = 0;
+    }
+    if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 0)//第一次放入，一次饮水过程开始
+    {
+      begin_weight = scale_get_units;
+      begin_time = (unsigned long)millis() / 1000;
+    }//有物品在传感器上+上一次循环没物品+不处于一次饮水过程中，说明是第一次放入物品，一次饮水开始，记录开始的质量以及时间
+    if (layflag == 1 && lastlayflag == 0 && drinking_leaving == 1)//第二次放入，一次饮水过程结束
+    {
+      end_time = (unsigned long)millis() / 1000;
+      drinking_leaving = 0;
+      begin_weight = scale_get_units;
+      begin_time = (unsigned long)millis() / 1000;//重新开始记录时间
+    }
+    if (layflag == 0 && lastlayflag == 1)//如果上一次有物品，但是这一次没有物品，说明什么?说明水杯离开水杯垫，离开水杯垫有几个可能，一个是正常饮水一个是意外碰到，需要排除意外碰到的情况,还没怎么写排除(⊙﹏⊙)
+    {
+      if (begin_weight - scale_get_units > 10)//如果和原来比，比原来小10g以上可认定为饮水过程中，故置其标志位为1
+      {
+        drinking_leaving = 1;//置一次饮水的”中断期“标志位为1
+      }
+    }
+  }
+}
 
 /*********************************************************
     函数名称：DHT_read
@@ -787,6 +848,8 @@ void remind1()
     digitalWrite(BUZZER2, LOW);
   }
   digitalWrite(LED1, HIGH);
+  MsTimer2::set(500, detection); //设置中断，每500ms进入一次中断服务程序
+  MsTimer2::start(); //开始计时_开启定时器中断
   old_time = millis();
   while (millis() < old_time + 3000)
   {
@@ -836,6 +899,8 @@ void remind1()
   }
 remind_over:
   old_time = millis();
+  digitalWrite(BUZZER2, HIGH);
+  MsTimer2::stop();
 }
 
 /***********************************************************
@@ -886,7 +951,7 @@ void remind1_s()
   else
   {
     lcd.print((int)((unsigned long)millis() / 1000 - begin_time) / 60);
-    lcd.print("h");
+    lcd.print("min");
     lcd.print(((unsigned long)millis() / 1000 - begin_time) - ((int)((unsigned long)millis() / 1000 - begin_time) / 60) * 60);
     lcd.print("s");
   }
@@ -902,6 +967,7 @@ void remind1_s()
     lcd.setCursor(0, 1);
   } //LCD1602一行显示的字符不够我们显示的，只能手动换行
   lcd.write(byte(2));
+  lcd.print("!");
   if (((unsigned long)millis() / 1000 - begin_time) > 60 && ((unsigned long)millis() / 1000 - begin_time) <= 600)
   {
     lcd.setCursor(0, 1);
@@ -913,6 +979,10 @@ void remind1_s()
     digitalWrite(BUZZER2, LOW);
   }
   digitalWrite(LED1, HIGH);
+
+  MsTimer2::set(500, detection); //设置中断，每500ms进入一次中断服务程序
+  MsTimer2::start(); //开始计时_开启定时器中断
+
   old_time = millis();
   while (millis() < old_time + 3000)
   {
@@ -960,6 +1030,8 @@ void remind1_s()
   }
 remind_over:
   old_time = millis();
+  digitalWrite(BUZZER2, HIGH);
+  MsTimer2::stop();
 }
 
 /***********************************************************
