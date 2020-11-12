@@ -8,9 +8,15 @@
                     维护此项目请做好测试以及写好修改说明
                     下一步工作使用三线程，我将继续修复bug,以及重写导入的库文件所用到的函数以及简化代码，向勉益将为此项目添加esp8266串口数据传输的功能，成帅继续完成提醒部分的程序
     bug备忘录：
-              提醒时拿走水杯应该立即停止提醒  已尝试解决 
-              硬件连线不正确的时候，无法初始化，无法串口输出，又没有报错，需要在各传感器的读取函数中增加错误提示。对整个程序应考虑异常的处理情况
+              提醒时拿走水杯应该立即停止提醒  已尝试解决
               
+    工作备忘录：
+    机械结构（多个LED灯，设计一个重置按键，以及开关按键
+    物联网彻底实现
+    bug修完
+    经费记录本
+    ppt做好
+
     修改记录:20200830  成帅   创建
             20200831 吴韦举  格式优化；代码整合；细节优化；
                             试图编写scale_antishake()函数，失败，暂时弃用了
@@ -30,6 +36,8 @@
             20200927 吴韦举  尝试解决了提醒时拿走水杯应该立即停止提醒的问题，改变了部分端口的宏定义参数名字,优化输出部分函数，将remind_mute删除，将静音提醒部分融入函数，主程序中无需在做
                             user_mute的取值判定。未进行调试。
                             解决失败，需要重新修改。
+            20201020 吴韦举 添加了异常处理提示的代码，解决了在硬件连线不正确的时候，无法初始化，无法串口输出，又没有报错，在各传感器的读取函数中增加了错误提示（串口输出），便于开发者调试。
+            20201111 吴韦举 
 
 **********************************************************/
 
@@ -44,19 +52,19 @@
 /**********************************************************
                         宏定义
 ***********************************************************/
-#define DHT11_PIN 49 //DHT11数据线
+#define DHT11_PIN 4 //DHT11数据线
 #define DOUT_PIN 2   //HX711数据线
 #define SCK_PIN 3    //HX711时钟线
-#define LED1 51      //第一个lcd灯使用51号digital端口
-#define BUZZER1 53   //53号数字端口，与有源蜂鸣器的VCC连接，是蜂鸣器的主供电口。
-#define BUZZER2 52   //52号数字端口，低电平触发蜂鸣，是蜂鸣器的控制端口。
+#define LED1 52      //第一个lcd灯暂定使用52号digital端口
+#define BUZZER1 51   //53号数字端口，与有源蜂鸣器的VCC连接，是蜂鸣器的主供电口。
+#define BUZZER2 53   //52号数字端口，低电平触发蜂鸣，是蜂鸣器的控制端口。
 //uint8_t DHT11_PIN = 49;
 /*完全重现此测试项目需要如下连接：
-  DHT11 DATA----D49，
-  HX711 DT----A2  SCK----A3
-  LED  VCC----D51
+  DHT11 DATA----D4，
+  HX711 DT----D2  SCK----D3
+  LED  VCC----D52
   LCD1602_I2C  SCL----SCL   SDA----SDA
-  BEEP I/O----D53  VCC---D52
+  BEEP I/O----D53  VCC---D51
   Esp8266-01 RX----TX,TX----RX
 */
 
@@ -96,7 +104,7 @@ int user_backlight = 1;         //布尔值，用于控制LCD1602的背光显示
 int user_blink = 1;             //布尔值，用于控制LCD1602的闪烁情况，默认1开启
 int user_mute = 0;              //布尔值，用于控制是否开启静音，默认0关闭
 int user_temperature_unit = 0;  //布尔值，用于控制显示的摄氏度还是华氏度，默认为0摄氏度,1为华氏度
-int user_scale_situation = 0;   //布尔值，用于控制是否进入电子秤模式(此模式暂未编写，计划中)，默认0否
+int user_scale_situation = 0;   //布尔值，用于控制是否进入电子秤模式，默认0否
 int user_RH = 15;              //用于开发者测试,单位百分比
 int user_temperature = 30;     //用于开发者测试,单位摄氏度
 double scale_factor = 415.006;   //用于开发者测试，压力传感器的校准参数，需要开发者校准
@@ -164,8 +172,8 @@ void setup()
   Serial.begin(115200);
   Serial.println();
   HX711_initialize();//初始化阶段不能碰压力传感器，初始化后会设这时的压力为零点
-  LCD1602_welcome();
   DHT_begin();
+  LCD1602_welcome();
 }
 
 void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好不要超过2s
@@ -257,44 +265,44 @@ void loop()//目前一次loop循环运行时间不超过2s,可以接受，最好
       {
         if ((unsigned long)millis() / 1000 - begin_time - user_time5 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time5 > 0 && drinking_leaving == 0) //第一级提醒
         {
-           remind1_s();
+          remind1_s();
         }
         if ((unsigned long)millis() / 1000 - begin_time - user_time6 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time6 > 0 && drinking_leaving == 0) //第二级提醒
         {
-            remind1_s();
+          remind1_s();
         }
       }
       else if (RH < user_RH && temperature < user_temperature)//符合lv_2的温湿度提醒条件
       {
         if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0 && drinking_leaving == 0)//第一级提醒
         {
-            remind1_s();
+          remind1_s();
         }
         if ((unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0 && drinking_leaving == 0) //第二级提醒
         {
-            remind1_s();
+          remind1_s();
         }
       }
       if (RH > user_RH && temperature > user_temperature)
       {
         if ((unsigned long)millis() / 1000 - begin_time - user_time3 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time3 > 0 && drinking_leaving == 0)//第一级提醒
         {
-            remind1_s();
+          remind1_s();
         }
         if ( (unsigned long)millis() / 1000 - begin_time - user_time4 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time4 > 0 && drinking_leaving == 0) //第二级提醒
         {
-            remind1_s();
+          remind1_s();
         }
       }
       if (RH < user_RH && temperature > user_temperature) //符合lv_3的温湿度提醒条件
       {
         if ((unsigned long)millis() / 1000 - begin_time - user_time1 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time1 > 0 && drinking_leaving == 0) //第一级提醒
         {
-            remind1_s();
+          remind1_s();
         }
         if ((unsigned long)millis() / 1000 - begin_time - user_time2 < 20 && (unsigned long)millis() / 1000 - begin_time - user_time2 > 0 && drinking_leaving == 0) //第二级提醒
         {
-            remind1_s();
+          remind1_s();
         }
       }
     }
@@ -515,6 +523,12 @@ void DHT_begin()
   pinMode(DHT11_PIN, INPUT_PULLUP);
   dht_lastreadtime = millis() - 2000;//用于确保dht两次完整读数间隔超过2s的参数
   dht_pullTime = 55;//保证DHT11充分上拉的时间间隔
+  while (!DHT_read())
+  {
+    Serial.println("DHT11 is not work.");
+    delay(1000);
+  }
+  Serial.println("DHT11 is OK.");
 }
 
 /****************************************************
@@ -671,10 +685,19 @@ void HX711_initialize()
 {
   while (1)
   {
-    if (abs(HX711_read_raw() - HX711_read_raw_average(10)) < 1200) //防抖，大概允许抖动范围为+-3g
+    if (digitalRead(DOUT_PIN) != 1)
     {
-      HX711_initial_weight = HX711_read_raw();
-      break;
+      Serial.println("HX711 is OK.");
+      if (abs(HX711_read_raw() - HX711_read_raw_average(10)) < 1200) //防抖，大概允许抖动范围为+-3g
+      {
+        HX711_initial_weight = HX711_read_raw();
+        break;
+      }
+    }
+    else
+    {
+      Serial.println("HX711 is not work.");
+      delay(1000);
     }
   }
   Serial.print("HX711_initial_wight:");
@@ -683,14 +706,6 @@ void HX711_initialize()
   Serial.println(HX711_read_raw());
   Serial.print("HX711_read:");
   Serial.println(HX711_read());
-  /*if (digitalRead(DOUT_PIN) != 1)
-    {
-    Serial.println("HX711 is OK.");
-    }
-    else
-    {
-    Serial.println("HX711 is not work.");
-    }*/
 }
 
 /***********************************************************
@@ -1206,8 +1221,8 @@ void processMessage(aJsonObject * msg)
     说明：需要初始化LCD1602，现已弃用，全部打成了注释
 ***********************************************************/
 /*
-void remind1_mute()
-{
+  void remind1_mute()
+  {
   unsigned long old_time = 0;
   unsigned long old_time1 = 0;
   pinMode(LED1, OUTPUT);
@@ -1306,7 +1321,7 @@ void remind1_mute()
     }
     old_time1 = millis();
   }
-remind_over:
+  remind_over:
   old_time = millis();
-}
+  }
 */
